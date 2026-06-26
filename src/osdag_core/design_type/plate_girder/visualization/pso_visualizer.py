@@ -23,14 +23,11 @@ import matplotlib
 
 matplotlib.use('QtAgg')
 
-from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QApplication, QFrame,
     QSizePolicy, QFileDialog, QDialog
 )
 from osdag_gui.ui.components.dialogs.custom_titlebar import CustomTitleBar
-from PySide6.QtGui import QFont
 
 # Import safe_processEvents for thread-safe UI updates during CAD operations
 try:

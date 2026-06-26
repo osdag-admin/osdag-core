@@ -4,9 +4,6 @@ from ..utils.common.component import *
 from ..utils.common.Section_Properties_Calculator import *
 from .main import Main
 from ..utils.common.Unsymmetrical_Section_Properties import Unsymmetrical_I_Section_Properties
-from PySide6 import QtWidgets
-from PySide6.QtWidgets import QCheckBox
-from PySide6.QtCore import Qt
 
 
 class Member(Main):
@@ -3435,28 +3432,13 @@ class Member(Main):
 
     def call_3DPlate(self, ui, bgcolor):
         
-        for chkbox in ui.findChildren(QtWidgets.QCheckBox):
-            if chkbox.objectName() == 'Plate':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel("Plate", bgcolor)
 
     def call_3DMember(self, ui, bgcolor):
       
-        for chkbox in ui.findChildren(QtWidgets.QCheckBox):
-            if chkbox.objectName() == 'Member':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel("Member", bgcolor)
 
 
     def call_3DEndplate(self, ui, bgcolor):
        
-        for chkbox in ui.findChildren(QtWidgets.QCheckBox):
-            if chkbox.objectName() == 'Endplate':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel("Endplate", bgcolor)

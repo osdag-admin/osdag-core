@@ -2030,15 +2030,6 @@ class ColumnEndPlate(MomentConnection):
 
     def call_3DPlate(self, ui, bgcolor):
         ui = getattr(ui, "ui", ui)
-        from PySide6.QtWidgets import QCheckBox
-        from PySide6.QtCore import Qt
-        frame = getattr(ui, "frame", None)
-        if frame:
-            for chkbox in frame.children():
-                if chkbox.objectName() == 'Column End Plate':
-                    continue
-                if isinstance(chkbox, QCheckBox):
-                    chkbox.setChecked(Qt.Unchecked)
         ui.commLogicObj.display_3DModel("Connector", bgcolor)
 
 #####################################################################

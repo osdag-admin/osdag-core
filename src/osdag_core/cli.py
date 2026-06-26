@@ -1,3 +1,9 @@
+import os
+import platform
+import click
+import yaml
+import pandas as pd
+from pathlib import Path
 from osdag_core.design_type.connection.fin_plate_connection import FinPlateConnection
 from osdag_core.design_type.connection.cleat_angle_connection import CleatAngleConnection
 from osdag_core.design_type.connection.seated_angle_connection import SeatedAngleConnection
@@ -48,42 +54,41 @@ from osdag_core.Common import (
 
 
 available_modules = {
-    KEY_DISP_BASE_PLATE:BasePlateConnection, 
-    KEY_DISP_BEAMCOVERPLATE:BeamCoverPlate, 
-    KEY_DISP_CLEATANGLE:CleatAngleConnection,
-    KEY_DISP_COLUMNCOVERPLATE:ColumnCoverPlate, 
-    KEY_DISP_COLUMNENDPLATE:ColumnEndPlate, 
-    KEY_DISP_ENDPLATE:EndPlateConnection,
-    KEY_DISP_FINPLATE:FinPlateConnection, 
-    KEY_DISP_SEATED_ANGLE:SeatedAngleConnection, 
-    KEY_DISP_TENSION_BOLTED:Tension_bolted,
-    KEY_DISP_TENSION_WELDED:Tension_welded, 
-    KEY_DISP_BEAMCOVERPLATEWELD:BeamCoverPlateWeld,
-    KEY_DISP_COLUMNCOVERPLATEWELD:ColumnCoverPlateWeld, 
-    KEY_DISP_BB_EP_SPLICE:BeamBeamEndPlateSplice,
-    KEY_DISP_BCENDPLATE:BeamColumnEndPlate,
-    KEY_DISP_STRUT_BOLTED_END_GUSSET:Compression_bolted,
-    KEY_DISP_STRUT_WELDED_END_GUSSET:Compression_welded,
-    KEY_DISP_COMPRESSION_COLUMN:ColumnDesign
+    KEY_DISP_BASE_PLATE: BasePlateConnection,
+    KEY_DISP_BEAMCOVERPLATE: BeamCoverPlate,
+    KEY_DISP_CLEATANGLE: CleatAngleConnection,
+    KEY_DISP_COLUMNCOVERPLATE: ColumnCoverPlate,
+    KEY_DISP_COLUMNENDPLATE: ColumnEndPlate,
+    KEY_DISP_ENDPLATE: EndPlateConnection,
+    KEY_DISP_FINPLATE: FinPlateConnection,
+    KEY_DISP_SEATED_ANGLE: SeatedAngleConnection,
+    KEY_DISP_TENSION_BOLTED: Tension_bolted,
+    KEY_DISP_TENSION_WELDED: Tension_welded,
+    KEY_DISP_BEAMCOVERPLATEWELD: BeamCoverPlateWeld,
+    KEY_DISP_COLUMNCOVERPLATEWELD: ColumnCoverPlateWeld,
+    KEY_DISP_BB_EP_SPLICE: BeamBeamEndPlateSplice,
+    KEY_DISP_BCENDPLATE: BeamColumnEndPlate,
+    KEY_DISP_STRUT_BOLTED_END_GUSSET: Compression_bolted,
+    KEY_DISP_STRUT_WELDED_END_GUSSET: Compression_welded,
+    KEY_DISP_COMPRESSION_COLUMN: ColumnDesign
 }
 
-from pathlib import Path
-import yaml, click, platform, os
-import pandas as pd
 
-def _print_result(out_dict:dict):
+def _print_result(out_dict: dict):
     print("="*100)
     print("--Design Results--\n")
     for key, value in out_dict.items():
         print(f"|| {key}: {value}")
     print("="*100)
 
-def _get_design_dictionary(osi_path:Path) -> dict:
+
+def _get_design_dictionary(osi_path: Path) -> dict:
     """return the design dictionary from an OSI file."""
     with open(osi_path, 'r') as file:
         return yaml.safe_load(file)
-    
-def _get_output_dictionary(module:Main) -> dict:
+
+
+def _get_output_dictionary(module: Main) -> dict:
     """return the output dictionary for the design"""
     status = module.design_status
     out_list = module.output_values(status)
@@ -97,52 +102,59 @@ def _get_output_dictionary(module:Main) -> dict:
             for item in fn(status):
                 lable = item[0]
                 value = item[3]
-                if lable!=None and value!=None:
+                if lable != None and value != None:
                     out_dict[lable] = value
     return out_dict
 
 
-def _generate_csv(output_dictionary:dict, output_file:str):
+def _generate_csv(output_dictionary: dict, output_file: str):
     """save the output dictionary to a csv file"""
     df = pd.DataFrame(output_dictionary.items())
     df.to_csv(output_file, index=False, header=None)
 
-def _generate_report(module:Main, output_file:Path):
-    """generate pdf and tex report file for the output dictionary."""
+
+def _generate_report(module: Main, output_file: Path):
+    import os
+    
+    # Generate 3D images before report
+    _generate_cad_images(module, output_file.parent)
+
     popup_summary = {
-            'ProfileSummary': {
-            'CompanyName': 'LoremIpsum', 
-            'CompanyLogo': '', 
-            'Group/TeamName': 'LoremIpsum', 
+        'ProfileSummary': {
+            'CompanyName': 'LoremIpsum',
+            'CompanyLogo': '',
+            'Group/TeamName': 'LoremIpsum',
             'Designer': 'LoremIpsum'
-        }, 
-        'ProjectTitle': 'Fossee', 
-        'Subtitle': '', 
-        'JobNumber': '123', 
-        'AdditionalComments': 'No comments', 
-        'Client': 'LoremIpsum', 
-        'filename': f'{output_file}', 
-        'does_design_exist': True, 
+        },
+        'ProjectTitle': 'Fossee',
+        'Subtitle': '',
+        'JobNumber': '123',
+        'AdditionalComments': 'No comments',
+        'Client': 'LoremIpsum',
+        'filename': f'{output_file}',
+        'does_design_exist': True,
         'logger_messages': ''
-        }
+    }
     module.save_design(popup_summary)
+
 
 def _get_documents_folder() -> Path:
     """Get the user's Documents folder path."""
     system = platform.system()
 
-    if system == "Windows": 
+    if system == "Windows":
         return Path(os.environ["USERPROFILE"]) / "Documents"
 
     elif system == "Darwin":  # macOS
         return Path.home() / "Documents"
 
     else:  # Linux
-        # Most Linux systems follow the XDG standard 
+        # Most Linux systems follow the XDG standard
         xdg = os.environ.get("XDG_DOCUMENTS_DIR")
         if xdg:
             return Path(os.path.expandvars(xdg))
         return Path.home() / "Documents"
+
 
 def _is_in_current_user(path: str | Path) -> bool:
     """Check if the OSdag is running in the current user's directory."""
@@ -176,14 +188,14 @@ def run_module(*args, **kargs) -> dict:
         result["errors"].append("No input file provided.")
         # print(result)
         return result
-    
+
     osi_path = Path(osi_path) if osi_path else None
     output_path = Path(output_path) if output_path else None
     if not osi_path.exists():
         result["errors"].append(f"File not found: {osi_path}")
         # print(result)
         return result
-    
+
     design_dict = _get_design_dictionary(osi_path)
     module_name = design_dict.get("Module")
     if not module_name:
@@ -201,15 +213,18 @@ def run_module(*args, **kargs) -> dict:
     input_filename = osi_path.stem
     output_filename = output_path.stem if output_path else None
     if not output_path:
-        output_folder_path = _get_documents_folder() / "Osdag Outputs" / f"{module_class.__name__}"
+        output_folder_path = _get_documents_folder() / "Osdag Outputs" / \
+            f"{module_class.__name__}"
     else:
         if not _is_in_current_user(output_path):
-            result["errors"].append("Output path must be within the current user's directory.")
+            result["errors"].append(
+                "Output path must be within the current user's directory.")
             # print(result)
             return result
         output_folder_path = output_path.parent / f"{module_class.__name__}"
     output_folder_path.mkdir(parents=True, exist_ok=True)
-    output_file = output_folder_path / f"{output_filename if output_filename else input_filename}"
+    output_file = output_folder_path / \
+        f"{output_filename if output_filename else input_filename}"
 
     module.set_osdaglogger(None, None)
     val_errors = module.func_for_validation(design_dict)
@@ -253,5 +268,133 @@ def run_module(*args, **kargs) -> dict:
 
     if len(result["errors"]) > 0:
         print(result["errors"])
-    
+
     return result
+
+
+# --- Main CLI group ---
+help_msg = """\b
+==================================================
+Osdag Steel Design and Graphics Application
+
+Usage:
+
+  osdag-cli run module               # Use CLI tools (see below)
+
+Examples:
+
+  osdag-cli run module -i TensionBolted.osi
+  osdag-cli run module -i TensionBolted.osi -t save_csv -o result.csv
+  osdag-cli run module -i TensionBolted.osi -t generate_report -o result.pdf
+  osdag-cli run module -i TensionBolted.osi -t print_result
+
+==================================================
+"""
+
+
+@click.group(invoke_without_command=True,
+             help="\n\bOsdag Application. Run 'osdag-cli run module' for command-line tools.\n",
+             epilog=help_msg,
+             context_settings=dict(help_option_names=['-h', '--help']),
+             )
+@click.pass_context
+def main(ctx):
+    if ctx.invoked_subcommand is None:
+        click.echo(help_msg)
+
+
+# --- CLI group ---
+@main.group(help="\n\bRun CLI mode (use subcommands like 'module').\n",
+            context_settings=dict(help_option_names=['-h', '--help']),
+            )
+def run():
+    pass
+
+
+# --- Subcommand: run ---
+@run.command(help="\n\b(run osdag modules)\n",
+             context_settings=dict(help_option_names=['-h', '--help']),
+             )
+@click.option("-i", "--input", "input_path",
+              type=click.Path(exists=True, dir_okay=False),
+              required=True,
+              help="Path to input file (.osi)")
+@click.option("-t", "--op_type", "op_type",
+              type=click.Choice(
+                  ["save_csv", "generate_report", "print_result"]),
+              default="print_result",
+              show_default=True,
+              help="Type of operation")
+@click.option("-o", "--output", "output_path",
+              type=click.Path(dir_okay=False, writable=True),
+              help="Path for output file")
+def module(input_path, op_type, output_path):
+    result = run_module(input_path=input_path,
+                        op_type=op_type,
+                        output_path=output_path)
+
+    if not result["success"]:
+        click.echo("Errors encountered:")
+        for err in result["errors"]:
+            click.echo(f"   - {err}")
+    else:
+        click.echo("Operation completed successfully")
+        if result.get("output"):
+            click.echo(f"Output saved at: {result['output']}")
+
+def _generate_cad_images(module: Main, output_folder: Path):
+    """Create CAD headlessly and render 3D views for report."""
+    try:
+        from osdag_core.cad.common_logic import CommonDesignLogic
+        from osdag_core.cad.offscreen_renderer import render_3d_views
+
+        # Instantiate CommonDesignLogic with no display/widget (CLI mode)
+        connection = getattr(module, 'module', '')
+        mainmodule = getattr(module, 'mainmodule', '')
+        folder = str(output_folder)
+
+        cl = CommonDesignLogic(
+            display=None,
+            cad_widget=None,
+            folder=folder,
+            connection=connection,
+            mainmodule=mainmodule
+        )
+
+        # Call CAD creation
+        status = module.design_status
+        cl.call_3DModel(status, module)
+
+        # Collect shapes
+        shapes = []
+        for attr in ['TObj', 'CPObj', 'BPObj', 'ColObj', 'connectivityObj']:
+            obj = getattr(cl, attr, None)
+            if obj is None:
+                continue
+            for method in ['get_members_models', 'get_plates_models',
+                          'get_welded_models', 'get_end_plates_models',
+                          'get_models']:
+                try:
+                    result = getattr(obj, method)
+                    if callable(result):
+                        result = result()
+                    if result is not None:
+                        shapes.append(result)
+                except Exception:
+                    pass
+            if hasattr(obj, 'shape') and obj.shape is not None:
+                shapes.append(obj.shape)
+
+        if shapes:
+            images_folder = Path(os.path.abspath(".")) / "ResourceFiles" / "images"
+            render_3d_views(shapes, images_folder)
+            print(f"[OffscreenRenderer] Images saved to {images_folder}")
+        else:
+            print("[OffscreenRenderer] No shapes found")
+
+    except Exception as e:
+        print(f"[OffscreenRenderer] Failed: {e}")
+
+
+if __name__ == "__main__":
+    main()

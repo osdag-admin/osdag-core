@@ -107,7 +107,7 @@ def osdag_display_shape(display, shapes, material=None, texture=None, color=None
 
     # Register shape with memory manager to prevent GC
     try:
-        from osdag_gui.OS_safety_protocols import get_occ_memory_manager
+        from osdag_core.OS_safety_protocols import get_occ_memory_manager
         manager = get_occ_memory_manager()
         widget_id = id(canvas)
         # Register both the widget context and the shape itself

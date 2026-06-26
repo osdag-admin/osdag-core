@@ -53,11 +53,11 @@ def get_latex_executable():
         if latex_exec :
             return str(latex_exec)
     except NameError:
-        return ""
-    return ""
+        return "pdflatex.exe" if platform.system().lower() == "windows" else "pdflatex"
+    return "pdflatex.exe" if platform.system().lower() == "windows" else "pdflatex"
+
     
 PATH_TO_DATABASE = files("osdag_core.data.ResourceFiles.Database").joinpath("Intg_osdag.sqlite")
-PDFLATEX = get_latex_executable()
 
 class OurLog(logging.Handler):
 

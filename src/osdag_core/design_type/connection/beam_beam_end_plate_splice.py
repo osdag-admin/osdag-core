@@ -753,15 +753,6 @@ class BeamBeamEndPlateSplice(MomentConnection):
 
     # display end plate
     def call_3DPlate(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Beam Beam End Plate':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                # CRITICAL: Block signals to prevent cascading display_3DModel calls
-                chkbox.blockSignals(True)
-                chkbox.setChecked(False)
-                chkbox.blockSignals(False)
         ui.commLogicObj.display_3DModel("Connector", bgcolor)
 
     # get the input values from UI and other functions

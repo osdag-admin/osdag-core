@@ -1,0 +1,75 @@
+Bolt.Bolt_Hole_Type: Standard
+Bolt.Diameter:
+- '8'
+- '10'
+- '12'
+- '16'
+- '20'
+- '24'
+- '30'
+- '36'
+- '42'
+- '48'
+- '56'
+- '64'
+- '14'
+- '18'
+- '22'
+- '27'
+- '33'
+- '39'
+- '45'
+- '52'
+- '60'
+Bolt.Grade:
+- '3.6'
+- '4.6'
+- '4.8'
+- '5.6'
+- '5.8'
+- '6.8'
+- '8.8'
+- '9.8'
+- '10.9'
+- '12.9'
+Bolt.Slip_Factor: '0.52'
+Bolt.TensionType: Pre-tensioned
+Bolt.Type: Friction Grip Bolt
+Connector.Flange_Plate.Preferences: Outside + Inside
+Connector.Flange_Plate.Thickness_list: &id001
+- '8'
+- '10'
+- '12'
+- '14'
+- '16'
+- '18'
+- '20'
+- '22'
+- '25'
+- '28'
+- '32'
+- '36'
+- '40'
+- '45'
+- '50'
+- '56'
+- '63'
+- '75'
+- '80'
+- '90'
+- '100'
+- '110'
+- '120'
+Connector.Material: E 350 (Fe 490)
+Connector.Web_Plate.Thickness_List: *id001
+Design.Design_Method: Limit State Design
+Detailing.Corrosive_Influences: 'No'
+Detailing.Edge_type: Rolled, machine-flame cut, sawn and planed
+Detailing.Gap: '10'
+Load.Axial: '100'
+Load.Moment: '195'
+Load.Shear: '65'
+Material: E 350 (Fe 490)
+Member.Designation: HB 350
+Member.Material: E 350 (Fe 490)
+Module: Column-to-Column Cover Plate Bolted Connection

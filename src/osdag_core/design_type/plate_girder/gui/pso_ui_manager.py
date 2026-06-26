@@ -11,8 +11,6 @@ previously scattered in template_page.py for better maintainability.
 from typing import TYPE_CHECKING, Optional, Callable
 import time
 
-from PySide6.QtWidgets import QApplication, QComboBox, QWidget
-from PySide6.QtCore import QTimer
 
 # Import safe_processEvents for thread-safe UI updates during CAD operations
 try:

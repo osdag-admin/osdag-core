@@ -227,40 +227,42 @@ class CommonDesignLogic(object):
         Returns:
             None
         """
-        try:
-            from osdag_gui.OS_safety_protocols import get_occ_memory_manager
-            manager = get_occ_memory_manager()
-            widget_id = id(self.cad_widget)
+        # Memory management skipped in CLI mode
+        pass
+        # try:
+        #     from osdag_core.OS_safety_protocols import get_occ_memory_manager
+        #     manager = get_occ_memory_manager()
+        #     widget_id = id(self.cad_widget)
             
-            # Ensure widget is registered
-            if hasattr(self, 'display') and self.display:
-                manager.register_widget(widget_id, self.display.Context)
+        #     # Ensure widget is registered
+        #     if hasattr(self, 'display') and self.display:
+        #         manager.register_widget(widget_id, self.display.Context)
             
-            def register_recursive(obj):
-                """Recursively register shapes from various container types."""
-                if obj is None:
-                    return
-                if isinstance(obj, dict):
-                    for v in obj.values():
-                        register_recursive(v)
-                elif isinstance(obj, (list, tuple)):
-                    for item in obj:
-                        register_recursive(item)
-                else:
-                    # Assume it's a TopoDS_Shape or similar OCC object
-                    try:
-                        manager.register_shape(widget_id, obj)
-                    except Exception:
-                        pass  # Not a registerable shape type
+        #     def register_recursive(obj):
+        #         """Recursively register shapes from various container types."""
+        #         if obj is None:
+        #             return
+        #         if isinstance(obj, dict):
+        #             for v in obj.values():
+        #                 register_recursive(v)
+        #         elif isinstance(obj, (list, tuple)):
+        #             for item in obj:
+        #                 register_recursive(item)
+        #         else:
+        #             # Assume it's a TopoDS_Shape or similar OCC object
+        #             try:
+        #                 manager.register_shape(widget_id, obj)
+        #             except Exception:
+        #                 pass  # Not a registerable shape type
             
-            for shape_arg in shapes:
-                register_recursive(shape_arg)
+        #     for shape_arg in shapes:
+        #         register_recursive(shape_arg)
                 
-        except ImportError:
-            # Memory manager not available (e.g., running CAD tests without GUI)
-            pass
-        except Exception as e:
-            print(f"[WARNING] Could not register shapes with memory manager: {e}")
+        # except ImportError:
+        #     # Memory manager not available (e.g., running CAD tests without GUI)
+        #     pass
+        # except Exception as e:
+        #     print(f"[WARNING] Could not register shapes with memory manager: {e}")
 
 
     def get_notch_ht(self, PB_T, PB_R1, SB_T, SB_R1):
@@ -2930,8 +2932,45 @@ class CommonDesignLogic(object):
         return strutCAD
 
 
+    def _render_offscreen(self, component):
+        try:
+            from osdag_core.cad.offscreen_renderer import render_3d_views
+            shapes = []
+            for attr in ['TObj', 'CPObj', 'BPObj', 'ColObj', 'connectivityObj']:
+                obj = getattr(self, attr, None)
+                if obj is None:
+                    continue
+                for method in ['get_members_models', 'get_plates_models',
+                            'get_welded_models', 'get_end_plates_models',
+                            'get_models']:
+                    try:
+                        result = getattr(obj, method)
+                        if callable(result):
+                            result = result()
+                        if result is not None:
+                            shapes.append(result)
+                    except Exception:
+                        pass
+                if hasattr(obj, 'shape') and obj.shape is not None:
+                    shapes.append(obj.shape)
+
+            if not shapes:
+                print(f"[OffscreenRenderer] No shapes for: {component}")
+                return
+
+            # Use default path — cwd/ResourceFiles/images/
+            render_3d_views(shapes, output_folder=None)
+
+        except Exception as e:
+            print(f"[OffscreenRenderer] Failed: {e}")
+
+
     def display_3DModel(self, component, bgcolor):
-        
+        # CLI mode — no GUI display, use offscreen renderer
+        if not hasattr(self, 'display') or self.display is None:
+            self._render_offscreen(component)
+            return
+    
         # Component colors
         weld_color = Quantity_NOC_SADDLEBROWN
         plate_color = Quantity_Color(47/255.0, 47/255.0, 35/255.0, Quantity_TOC_RGB)
@@ -2943,7 +2982,7 @@ class CommonDesignLogic(object):
         self.component = component
 
         # Use CleanupCoordinator for centralized cleanup
-        from osdag_gui.OS_safety_protocols import get_cleanup_coordinator
+        from osdag_core.OS_safety_protocols import get_cleanup_coordinator
         coordinator = get_cleanup_coordinator()
         coordinator.cleanup_for_new_design(self.cad_widget, self.display)
 
@@ -3941,7 +3980,7 @@ class CommonDesignLogic(object):
                     self.connectivityObj = self.create3DBeamWebBeamWeb()
                 self.display_3DModel("Model","gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == "Moment Connection":
             if self.connection == KEY_DISP_BEAMCOVERPLATE or self.connection == KEY_DISP_BEAMCOVERPLATEWELD:
@@ -3950,111 +3989,111 @@ class CommonDesignLogic(object):
                     self.CPObj = self.createBBCoverPlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
             elif self.connection == KEY_DISP_BB_EP_SPLICE:
                 if flag is True:
                     self.CPObj = self.createBBEndPlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
             elif self.connection == KEY_DISP_BCENDPLATE: 
                 if flag is True:
                     self.CPObj = self.createBCEndPlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
             elif self.connection == KEY_DISP_COLUMNCOVERPLATE or self.connection == KEY_DISP_COLUMNCOVERPLATEWELD:       
                 if flag is True:
                     self.CPObj = self.createCCCoverPlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
             elif self.connection == KEY_DISP_COLUMNENDPLATE:
                 if flag is True:
                     self.CEPObj = self.createCCEndPlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
             elif self.connection == KEY_DISP_BASE_PLATE:
                 if flag is True:
                     self.BPObj = self.createBasePlateCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Flexure Member':
             if flag is True:
                 self.FObj = self.createSimplySupportedBeam()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Flexural Members - Cantilever':
             if flag is True:
                 self.FObj = self.createCantileverBeam()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Flexural Members - Purlins':
             if flag is True:
                 self.FObj = self.createPurlin()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Columns with known support conditions':
             if flag is True:
                 self.ColObj = self.createColumnInFrameCAD()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
         
         elif self.mainmodule == KEY_DISP_STRUT_WELDED_END_GUSSET:
             if flag is True:
                 self.ColObj = self.createStrutWeldedCAD()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == KEY_DISP_STRUT_BOLTED_END_GUSSET:
             if flag is True:
                 self.ColObj = self.createStrutBoltedCAD()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Lap Joint Bolted Connection':
             if flag is True:
                 self.ColObj = self.createBoltedLapJoint()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
                 
         elif self.mainmodule == 'Butt Joint Bolted Connection':
             if flag is True:
                 self.ColObj = self.createButtJointBoltedCAD()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'Butt Joint Welded Connection':
             if flag is True:
                 self.ColObj = self.createButtJointWeldedCAD()
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == KEY_DISP_LAPJOINTWELDED:
             if flag is True:
                 self.display_3DModel("Model", "gradient_bg")
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         elif self.mainmodule == 'PLATE GIRDER':
             if flag is True:
@@ -4065,7 +4104,7 @@ class CommonDesignLogic(object):
                     import traceback
                     traceback.print_exc()
             else:
-                self.display.EraseAll()
+                if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
         else:
             if self.connection == KEY_DISP_TENSION_BOLTED or self.connection == KEY_DISP_TENSION_WELDED:
@@ -4073,7 +4112,7 @@ class CommonDesignLogic(object):
                     self.TObj = self.createTensionCAD()
                     self.display_3DModel("Model", "gradient_bg")
                 else:
-                    self.display.EraseAll()
+                    if hasattr(self, 'display') and self.display: self.display.EraseAll()
 
     from OCC.Core.TopoDS import TopoDS_Shape
     from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
@@ -4498,3 +4537,4 @@ class CommonDesignLogic(object):
         self._register_shapes(result)
 
         return result
+

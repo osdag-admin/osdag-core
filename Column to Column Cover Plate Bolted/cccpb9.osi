@@ -1,0 +1,54 @@
+Bolt.Bolt_Hole_Type: Standard
+Bolt.Diameter:
+- '8'
+- '10'
+- '12'
+- '16'
+- '20'
+- '24'
+- '30'
+- '36'
+- '42'
+- '48'
+- '56'
+- '64'
+- '14'
+- '18'
+- '22'
+- '27'
+- '33'
+- '39'
+- '45'
+- '52'
+- '60'
+Bolt.Grade:
+- '3.6'
+- '4.6'
+- '4.8'
+- '5.6'
+- '5.8'
+- '6.8'
+- '8.8'
+- '9.8'
+- '10.9'
+- '12.9'
+Bolt.Slip_Factor: '0.3'
+Bolt.TensionType: Non pre-tensioned
+Bolt.Type: Bearing Bolt
+Connector.Flange_Plate.Preferences: Outside
+Connector.Flange_Plate.Thickness_list:
+- '12'
+Connector.Material: E 410 (Fe 540)
+Connector.Web_Plate.Thickness_List:
+- '12'
+Design.Design_Method: Limit State Design
+Detailing.Corrosive_Influences: 'No'
+Detailing.Edge_type: Sheared or hand flame cut
+Detailing.Gap: '3'
+Load.Axial: '100'
+Load.Moment: '195'
+Load.Shear: '125'
+Material: E 410 (Fe 540)
+Member.Designation: HB 400
+Member.Material: E 410 (Fe 540)
+Module: Column-to-Column Cover Plate Bolted Connection

@@ -5,9 +5,9 @@
 # Jinja variables help maintain the recipe as you'll update the version only here.
 # Using the name variable with the URL in line 16 is convenient
 # when copying and pasting from another recipe, but not really needed.
-{% set name = "Osdag" %}
-{% set branch = "dev" %}
-{% set version = "2026.04.0.0" %}
+{% set name = "osdag-core" %}
+{% set branch = "main" %}
+{% set version = "2026.04.0.0" %} # match this version with latest tag release on github
 
 package:
   name: {{ name|lower }}
@@ -33,7 +33,7 @@ build:
   # Uncomment the following line if the package is pure Python and the recipe is exactly the same for all platforms.
   # It is okay if the dependencies are not built for all platforms/versions, although selectors are still not allowed.
   # See https://conda-forge.org/docs/maintainer/knowledge_base.html#noarch-python for more details.
-  noarch: python
+  noarch: false
   # If the installation is complex, or different between Unix and Windows, use separate bld.bat and build.sh files instead of this key.
   # By default, the package will be built for the Python versions supported by conda-forge and for all major OSs.
   # Add the line "skip: True  # [py<35]" (for example) to limit to Python 3.5 and newer, or "skip: True  # [not win]" to limit to Windows.
@@ -41,7 +41,7 @@ build:
   # https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html#preprocessing-selectors
   script: {{ PYTHON }} -m pip install --no-deps --force-reinstall . -vv
   entry_points:
-    - osdag = osdag_gui.__main__:main
+    - osdag-cli = osdag_core.cli:main
 
 requirements:
   build:
@@ -51,28 +51,20 @@ requirements:
     - conda-forge::wheel
   
   host:
-    - conda-forge::python>=3.11,<3.13
+    - conda-forge::python>=3.10,<3.13
     - conda-forge::setuptools
     - conda-forge::wheel
     - conda-forge::pip
   run:
-    - conda-forge::python>=3.11,<3.13
+    - conda-forge::python>=3.10,<3.13
     - conda-forge::numpy
-    - conda-forge::openpyxl
     - conda-forge::pandas
     - conda-forge::pylatex
     - conda-forge::pyside6
-    - conda-forge::markdown
     - osdag::osdag_latex_env
-    - conda-forge::pythonocc-core
     - conda-forge::click
     - conda-forge::pyyaml
-    - conda-forge::smesh
     - conda-forge::sqlite
-    - conda-forge::tbb
-    - conda-forge::ifcopenshell
-    - conda-forge::lark
-    - geompy::navcube
 
 test:
   # Some packages might need a `test/commands` key to check CLI.

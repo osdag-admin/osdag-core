@@ -31,7 +31,6 @@ import logging
 
 import math
 
-from PySide6.QtCore import Qt
 
 
 class ButtJointWelded(MomentConnection):
@@ -496,48 +495,18 @@ class ButtJointWelded(MomentConnection):
         return components
 
     def call_3DModel(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Model':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel("Model", bgcolor)
 
     def call_3DPlate1(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Plate 1':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel('Plate 1', bgcolor)
 
     def call_3DPlate2(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Plate 2':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel('Plate 2', bgcolor)
 
     def call_3DCoverPlate(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Cover Plate':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel('Cover Plate', bgcolor)
 
     def call_3DWeld(self, ui, bgcolor):
-        from PySide6.QtWidgets import QCheckBox
-        for chkbox in ui.cad_comp_widget.children():
-            if chkbox.objectName() == 'Welds':
-                continue
-            if isinstance(chkbox, QCheckBox):
-                chkbox.setChecked(False)
         ui.commLogicObj.display_3DModel('Welds', bgcolor)
 
     def func_for_validation(self, design_dictionary):

@@ -623,4 +623,30 @@ class SaveDesignBP(BasePlateConnection):
         rel_path = rel_path.replace("\\", "/")
         fname_no_ext = popup_summary['filename']
 
+        # Generate 3D images for CLI report
+        try:
+            from osdag_core.cad.offscreen_renderer import render_3d_views
+            import os
+            from pathlib import Path
+            images_folder = Path(os.path.abspath(".")) / "ResourceFiles" / "images"
+            # Get shapes from the module object if available
+            shapes = []
+            if hasattr(self, 'BPObj') and self.BPObj is not None:
+                for method in ['get_models', 'get_members_models', 'shape']:
+                    try:
+                        result = getattr(self.BPObj, method)
+                        if callable(result):
+                            result = result()
+                        if result is not None:
+                            shapes.append(result)
+                            break
+                    except Exception:
+                        pass
+            if shapes:
+                render_3d_views(shapes, images_folder)
+        except Exception as e:
+            print(f"[OffscreenRenderer] {e}")
+
+        display_3D_image = "/ResourceFiles/images/3d.png"
+
         CreateLatex.save_latex(CreateLatex(), self.report_input, self.report_check, popup_summary, fname_no_ext, rel_path, display_3D_image)

@@ -11,16 +11,20 @@ where = ["src"]
 "osdag_core.data.doc" = ["**/*.MD", "**/*.md", "**/*.TXT", "**/*.txt"]
 "osdag_core.data.ResourceFiles.images" = ["**/*.png", "**/*.PNG", "**/*.jpg", "**/*.JPG", "**/*.jpeg", "**/*.JPEG"]
 "osdag_core.data.ResourceFiles.Database" = ["*"]
-"osdag_gui.resources" = [
-    "**/*.png", "**/*.PNG", "**/*.jpg", "**/*.JPG", "**/*.jpeg", "**/*.JPEG", "**/*.svg",
-    "**/*.qss", "**/*.ttf", "**/*.qrc"
-]
 
 
 [project]
-name = "osdag"
-dynamic = ["version"]
-dependencies = ["PyQt5", "PySide6", "requests", "pylatex", "numpy", "PyYaml", "PyGithub", "Click", "navcube"]
+name = "osdag-core"
+dynamic = ["version"] # extract version from git tag
+dependencies = [
+    "pylatex", 
+    "numpy", 
+    "PyYaml", 
+    "Click",
+    "pandas",
+    "sqlite",
+    "PySide6"
+]
 requires-python = ">= 3.10,<3.13"
 description = "Open steel design and graphics"
 readme = "README.md"
@@ -28,5 +32,5 @@ license = {file = "LICENSE"}
 keywords = ["steel design", "civil engineering", "engineering"]
 
 [project.scripts]
-osdag = "osdag_gui.__main__:main"
+osdag-cli = "osdag_core.cli:main"
 

@@ -1,8 +1,6 @@
 import logging
 import math
 import numpy as np
-from PySide6.QtWidgets import QDialog
-from PySide6.QtCore import Qt
 
 from ....Common import *
 from ....utils.common.material import *
@@ -19,7 +17,6 @@ from ....utils.common.Unsymmetrical_Section_Properties import Unsymmetrical_I_Se
 # New imports
 from ....Common import *
 from ..gui.dialogs import RangeInputDialog
-from osdag_gui.ui.components.dialogs.customized_popup import CustomValueSelectPopup
 from ..gui.widgets import My_ListWidget, My_ListWidgetItem
 from .section import Section, calc_yj, shear_stress_unsym_I, classify_section
 from .pso_optimizer import GlobalBestPSO
@@ -392,21 +389,9 @@ class PlateGirderWelded(Member):
             PlateGirderWelded.int_thicklist = []
             return {KEY_IntermediateStiffener_thickness_val : VALUES_STIFFENER_THICKNESS}
         else:
-            # Use new styled popup from osdag_gui
-            window = QDialog()
-            ui = CustomValueSelectPopup()
-            ui.setupUi(window, [], "")  # No disabled values, no note
-            
-            # Pre-select previously selected items, or all items if first time
-            existing_selections = PlateGirderWelded.int_thicklist if PlateGirderWelded.int_thicklist else VALUES_STIFFENER_THICKNESS
-            ui.addAvailableItems(VALUES_STIFFENER_THICKNESS, existing_selections)
-            
-            window.exec()
-            selected_items = ui.get_right_elements()
-            
-            if selected_items:
-                PlateGirderWelded.int_thicklist = selected_items
-            return {KEY_IntermediateStiffener_thickness_val : selected_items if selected_items else VALUES_STIFFENER_THICKNESS}                                 
+            # CLI mode — use all available thicknesses as default
+            PlateGirderWelded.int_thicklist = VALUES_STIFFENER_THICKNESS
+            return {KEY_IntermediateStiffener_thickness_val: VALUES_STIFFENER_THICKNESS}                                 
             
     def Long_stiffener_thickness_customized(self, arg):
         selected_items = []
@@ -415,21 +400,8 @@ class PlateGirderWelded(Member):
             PlateGirderWelded.long_thicklist = []
             return {KEY_LongitudnalStiffener_thickness_val : VALUES_STIFFENER_THICKNESS}
         else:
-            # Use new styled popup from osdag_gui
-            window = QDialog()
-            ui = CustomValueSelectPopup()
-            ui.setupUi(window, [], "")  # No disabled values, no note
-            
-            # Pre-select previously selected items, or all items if first time
-            existing_selections = PlateGirderWelded.long_thicklist if PlateGirderWelded.long_thicklist else VALUES_STIFFENER_THICKNESS
-            ui.addAvailableItems(VALUES_STIFFENER_THICKNESS, existing_selections)
-            
-            window.exec()
-            selected_items = ui.get_right_elements()
-            
-            if selected_items:
-                PlateGirderWelded.long_thicklist = selected_items
-            return {KEY_LongitudnalStiffener_thickness_val : selected_items if selected_items else VALUES_STIFFENER_THICKNESS}
+            PlateGirderWelded.long_thicklist = VALUES_STIFFENER_THICKNESS
+            return {KEY_LongitudnalStiffener_thickness_val: VALUES_STIFFENER_THICKNESS}
 
 
     @staticmethod

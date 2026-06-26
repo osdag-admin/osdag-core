@@ -1,4 +1,3 @@
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
 import re
 
 class My_ListWidget(QListWidget):
