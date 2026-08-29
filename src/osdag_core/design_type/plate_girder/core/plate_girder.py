@@ -151,7 +151,7 @@ class PlateGirderWelded(Member):
 
         t9 = ("Deflection", [KEY_STR_TYPE], [KEY_MEMBER_OPTIONS], TYPE_COMBOBOX, self.member_options_change)
         change_tab.append(t9)
-        t9 = ("Deflection", [KEY_MEMBER_OPTIONS], [KEY_SUPPORTING_OPTIONS], TYPE_COMBOBOX, self.supp_options_change)
+        t9 = ("Deflection", [KEY_STR_TYPE, KEY_MEMBER_OPTIONS], [KEY_SUPPORTING_OPTIONS], TYPE_COMBOBOX, self.supp_options_change)
         change_tab.append(t9)
         t9 = ("Deflection", [KEY_STR_TYPE,KEY_DESIGN_LOAD,KEY_MEMBER_OPTIONS,KEY_SUPPORTING_OPTIONS], [KEY_MAX_DEFL], TYPE_TEXTBOX, self.max_defl_change)
         change_tab.append(t9)
@@ -294,7 +294,7 @@ class PlateGirderWelded(Member):
             KEY_STR_TYPE:'Highway Bridge',
             KEY_DESIGN_LOAD:'Live Load',
             KEY_MEMBER_OPTIONS :'Simple Span',
-            KEY_SUPPORTING_OPTIONS: 'NA',
+            KEY_SUPPORTING_OPTIONS: 'Not Applicable',
             KEY_MAX_DEFL : 600,
             KEY_IntermediateStiffener_thickness_val : VALUES_STIFFENER_THICKNESS,
             KEY_LongitudnalStiffener_thickness_val : VALUES_STIFFENER_THICKNESS
@@ -310,13 +310,22 @@ class PlateGirderWelded(Member):
             return {KEY_MEMBER_OPTIONS : VALUES_MEMBER_OPTIONS[0]}
         
     def supp_options_change(self, arg):
-        if arg[0] in ['Purlin and Girts', 'Simple span', 'Cantilever span']:
+        # arg[0] = structure type, arg[1] = member option.
+        # Cladding-based supporting options (IS 800:2007 Table 6) apply to
+        # industrial/other buildings only. Bridge deflection is a direct span
+        # ratio, so Supporting Options is genuinely Not Applicable for bridges.
+        structure_type = arg[0] if arg and arg[0] else ""
+        member_option = arg[1] if len(arg) > 1 and arg[1] else ""
+        if structure_type in [KEY_DISP_STR_TYP1, KEY_DISP_STR_TYP2]:
+            return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_DEF}
+        member_lower = member_option.lower()
+        if member_lower in ['purlin and girts', 'simple span', 'cantilever span']:
             return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_PSC}
-        elif arg[0]  == 'Rafter Supporting':
+        elif member_lower == 'rafter supporting':
             return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_RS}
-        elif arg[0]  == 'Gantry':
+        elif member_lower == 'gantry':
             return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_GNT}
-        elif arg[0] in  ['Floor and roof', 'Cantilever']:
+        elif member_lower in ['floor and roof', 'cantilever']:
             return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_FRC}
         else:
             return {KEY_SUPPORTING_OPTIONS : VALUES_SUPPORTING_OPTIONS_DEF}
@@ -372,13 +381,19 @@ class PlateGirderWelded(Member):
                     return {KEY_MAX_DEFL : VALUES_MAX_DEFL[6]}
                 else:
                     return {KEY_MAX_DEFL : VALUES_MAX_DEFL[7]}
-            elif arg[2] == 'Gantry' and arg[1] == 'Live load':
+            elif arg[2] == 'Gantry':
+                # Gantry deflection is governed by the crane design load
+                # (arg[1]), not a 'Live load' option. IS 800:2007 Table 6:
+                # manual -> Span/500, electric <=50t -> Span/750,
+                # electric >50t -> Span/1000.
                 if arg[1] == 'Crane Load(Manual operation)':
                     return {KEY_MAX_DEFL : VALUES_MAX_DEFL[9]}
                 elif arg[1] == 'Crane load(Electric operation up to 50t)':
                     return {KEY_MAX_DEFL : VALUES_MAX_DEFL[10]}
-                else:
+                elif arg[1] == 'Crane load(Electric operation over 50t)':
                     return {KEY_MAX_DEFL : VALUES_MAX_DEFL[11]}
+                else:
+                    return {KEY_MAX_DEFL : 'NA'}
             else:
                 return {KEY_MAX_DEFL : 'NA'}
             
@@ -715,7 +730,7 @@ class PlateGirderWelded(Member):
         t0 = (None, DISP_TITLE_MOMENT_DESIGN, TYPE_TITLE, None, True)
         out_list.append(t0)
         
-        t_beta = (KEY_betab_constatnt, KEY_DISP_betab_constatnt, TYPE_TEXTBOX,
+        t_beta = (KEY_betab_constatnt, 'β<sub>b</sub>', TYPE_TEXTBOX,
                   self.betab if flag else '', True)
         out_list.append(t_beta)
         
@@ -912,9 +927,42 @@ class PlateGirderWelded(Member):
             print(f"DEBUG: Validation flags -> flag(fields):{flag}, flag1(length):{flag1}, flag2(shear):{flag2}, flag3(moment):{flag3}")
         
         if flag and flag1 and flag2 and flag3:
-            if self.debug:
-                print("DEBUG: Validation PASSED - Calling set_input_values")
-            self.set_input_values(design_dictionary)
+            max_defl_val = str(design_dictionary.get(KEY_MAX_DEFL, 'Span/600'))
+            denom_str = max_defl_val.split('/')[-1] if '/' in max_defl_val else max_defl_val
+            try:
+                float(denom_str)
+                design_dictionary[KEY_MAX_DEFL] = f"Span/{denom_str}"
+            except ValueError:
+                all_errors.append("Maximum Deflection must be a numeric value")
+                flag = False
+
+            web_phil = design_dictionary.get(KEY_WEB_PHILOSOPHY, "")
+            int_stiff = design_dictionary.get(KEY_IntermediateStiffener, "")
+            if web_phil == KEY_DISP_PHILO1 and int_stiff == "No":
+                all_errors.append("Intermediate stiffeners are mandatory for thin webs")
+                flag = False
+
+            # Intermediate stiffener spacing (Additional Inputs) is a free textbox with no
+            # validator, so guard against non-numeric input (e.g. "a12") here instead of
+            # letting float() crash downstream in design_check.
+            int_stiff_spacing = str(design_dictionary.get(KEY_IntermediateStiffener_spacing, "")).strip()
+            if int_stiff_spacing and int_stiff_spacing.upper() not in ("NA", "N/A"):
+                try:
+                    if float(int_stiff_spacing) <= 0:
+                        all_errors.append("Intermediate Stiffener Spacing must be a positive number")
+                        flag = False
+                except ValueError:
+                    all_errors.append("Intermediate Stiffener Spacing must be a numeric value (or leave as NA)")
+                    flag = False
+
+            if flag:
+                if self.debug:
+                    print("DEBUG: Validation PASSED - Calling set_input_values")
+                self.set_input_values(design_dictionary)
+            else:
+                if self.debug:
+                    print(f"DEBUG: Validation FAILED - Errors: {all_errors}")
+                return all_errors
         else:
             if self.debug:
                 print(f"DEBUG: Validation FAILED - Errors: {all_errors}")
@@ -972,6 +1020,9 @@ class PlateGirderWelded(Member):
                 print(f"  {key}: {design_dictionary[key]}")
             print("="*60 + "\n")
         
+        # Reset the once-per-run web-crippling warning guard for this design run
+        self.web_crippling_warning_logged = False
+
         self.module = design_dictionary[KEY_MODULE]
         self.mainmodule = 'PLATE GIRDER'
         self.design_type = design_dictionary[KEY_OVERALL_DEPTH_PG_TYPE]
@@ -1028,6 +1079,10 @@ class PlateGirderWelded(Member):
 
         thickness_for_mat = max(self.web_thickness,self.top_flange_thickness, self.bottom_flange_thickness)
         self.eff_depth = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
+        # Log the web-slenderness warning once per design run (the per-particle web-crippling
+        # check no longer logs it, to keep the design log readable during optimization).
+        if getattr(self, 'logger', None) and self.web_thickness and self.eff_depth / self.web_thickness > 200:
+            self.logger.warning("Web slenderness ratio (d/tw) exceeds 200. Additional stiffening may be required.")
         self.IntStiffnerwidth = min(self.top_flange_width,self.bottom_flange_width) - self.web_thickness/2 - 10
         self.material = Material(design_dictionary[KEY_MATERIAL],thickness_for_mat)
         if self.debug:
@@ -1066,12 +1121,17 @@ class PlateGirderWelded(Member):
         self.deflection_criteria= design_dictionary[KEY_MAX_DEFL]
         self.support_condition = 'Simply Supported'
         self.loading_case = design_dictionary[KEY_BENDING_MOMENT_SHAPE]
+        self.moment_diagram_type = self.loading_case
         self.shear_type = None
         self.support_type = design_dictionary[KEY_DESIGN_TYPE_FLEXURE]
         self.loading_condition = design_dictionary[KEY_LOAD]
         self.torsional_res = design_dictionary[KEY_TORSIONAL_RES]
         self.warping = design_dictionary[KEY_WARPING_RES]
         self.length = float(design_dictionary[KEY_LENGTH])
+        self.structure_type = design_dictionary.get(KEY_STR_TYPE, KEY_DISP_STR_TYP3)
+        self.design_load_type = design_dictionary.get(KEY_DESIGN_LOAD, VALUE_DESIGN_LOAD_list[0])
+        self.member_option = design_dictionary.get(KEY_MEMBER_OPTIONS, VALUES_MEMBER_OPTIONS[0][0])
+        self.supporting_option = design_dictionary.get(KEY_SUPPORTING_OPTIONS, VALUES_SUPPORTING_OPTIONS_DEF[0])
 
         # Calculate effective length for lateral-torsional buckling
         # LLT = k * L + d_mult * D per IS 800:2007 Table 15
@@ -1089,6 +1149,7 @@ class PlateGirderWelded(Member):
         self.effective_length = self.length * self.lefactor + self.d_offset_mult * self.total_depth
         self.allow_class = design_dictionary[KEY_ALLOW_CLASS]
         self.loading_case = design_dictionary[KEY_BENDING_MOMENT_SHAPE]
+        self.moment_diagram_type = self.loading_case
         self.beta_b_lt = None
         self.web_philosophy = design_dictionary[KEY_WEB_PHILOSOPHY]
         self.epsilon = math.sqrt(250 / self.material.fy)  # IS 800:2007: ε = √(250/fy), fy in MPa
@@ -1102,6 +1163,7 @@ class PlateGirderWelded(Member):
         self.V_cr = None
         self.V_d = None
         self.V_tf = None
+        self.intermediate_stiffener = design_dictionary[KEY_IntermediateStiffener]
         self.long_Stiffner = design_dictionary[KEY_LongitudnalStiffener]
         self.load = Load(shear_force=design_dictionary[KEY_SHEAR],axial_force="",moment=design_dictionary[KEY_MOMENT],unit_kNm=True,)
         # Imperfection factor per IS 800:2007 Table 10 for welded I-sections
@@ -1249,6 +1311,20 @@ class PlateGirderWelded(Member):
             debug=self.debug
         )
         return is_valid
+
+    def _warn_web_crippling_once(self):
+        """Log the web-crippling shortfall warning at most once per design run.
+
+        check_web_crippling_IS800() no longer logs this itself because it is evaluated
+        once per particle per PSO iteration; logging there floods the design log with
+        identical lines. This consolidates it to a single message for the final design.
+        """
+        if not getattr(self, 'web_crippling_warning_logged', False):
+            self.logger.warning(
+                f"Web crippling resistance ({self.F_q:.2f} N) is less than factored "
+                f"load ({self.load.shear_force:.2f} N)"
+            )
+            self.web_crippling_warning_logged = True
 
     def design_check(self,design_dictionary):
         if self.debug:
@@ -1411,7 +1487,8 @@ class PlateGirderWelded(Member):
                         self.logger.error("Web Buckling Check failed")
                     
                     web_height = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
-                    is_safe, self.F_q = check_web_crippling(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, self.gamma_m0, self.logger, debug=self.debug)
+                    tf_used = min(self.top_flange_thickness, self.bottom_flange_thickness) if self.top_flange_thickness > 0 and self.bottom_flange_thickness > 0 else (self.top_flange_thickness or self.bottom_flange_thickness)
+                    is_safe, self.F_q = check_web_crippling_IS800(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, tf_used, self.gamma_m0, self.logger, debug=self.debug)
                     if self.debug:
                         print(f"Crippling Resistance (F_q): {self.F_q:.2f} N")
                     if is_safe:
@@ -1420,7 +1497,8 @@ class PlateGirderWelded(Member):
                     else:
                         self.shearflag3 = False
                         self.logger.error("Web Crippling Check failed")
-                    
+                        self._warn_web_crippling_once()
+
                     if self.shearflag1 == True and self.shearflag2 == True and self.shearflag3 == True:
                         self.shearchecks = True
                     else:
@@ -1502,8 +1580,12 @@ class PlateGirderWelded(Member):
                     self.c = self.calculate_stiffener_spacing_IS800()
                     self.logger.info(f"Calculated stiffener spacing (c) per IS 800:2007: {self.c:.2f} mm")
                 else:
-                    self.c = float(self.c)
-                
+                    try:
+                        self.c = float(self.c)
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Invalid intermediate stiffener spacing '{self.c}'; using calculated value")
+                        self.c = self.calculate_stiffener_spacing_IS800()
+
                 self.design_flag2 = min_web_thickness_thick_web(self.eff_depth,self.web_thickness,self.epsilon,self.stiffener_type,self.c, debug=self.debug)
                 if self.design_flag2 == True:
                     self.x= design_dictionary[KEY_ShearBucklingOption]
@@ -1560,13 +1642,15 @@ class PlateGirderWelded(Member):
 
                         # Web Crippling Check (Added for Thin Web with ITS/Simple Post Critical)
                         web_height = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
-                        is_safe_crip, self.F_q = check_web_crippling(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, self.gamma_m0, self.logger, debug=self.debug)
+                        tf_used = min(self.top_flange_thickness, self.bottom_flange_thickness) if self.top_flange_thickness > 0 and self.bottom_flange_thickness > 0 else (self.top_flange_thickness or self.bottom_flange_thickness)
+                        is_safe_crip, self.F_q = check_web_crippling_IS800(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, tf_used, self.gamma_m0, self.logger, debug=self.debug)
                         if is_safe_crip:
                             self.shearflag3 = True
                             self.logger.info("Web Crippling Check passed")
                         else:
                             self.shearflag3 = False
                             self.logger.error("Web Crippling Check failed")
+                            self._warn_web_crippling_once()
                             
 
                     
@@ -1617,13 +1701,15 @@ class PlateGirderWelded(Member):
 
                         # Web Crippling Check (Added for Thin Web with ITS/Tension Field)
                         web_height = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
-                        is_safe_crip, self.F_q = check_web_crippling(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, self.gamma_m0, self.logger, debug=self.debug)
+                        tf_used = min(self.top_flange_thickness, self.bottom_flange_thickness) if self.top_flange_thickness > 0 and self.bottom_flange_thickness > 0 else (self.top_flange_thickness or self.bottom_flange_thickness)
+                        is_safe_crip, self.F_q = check_web_crippling_IS800(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, tf_used, self.gamma_m0, self.logger, debug=self.debug)
                         if is_safe_crip:
                             self.shearflag3 = True
                             self.logger.info("Web Crippling Check passed")
                         else:
                             self.shearflag3 = False
                             self.logger.error("Web Crippling Check failed")
+                            self._warn_web_crippling_once()
 
                     if self.shearflag1 == True and self.shearflag2 == True and self.shearflag3 == True:
                         self.shearchecks = True
@@ -2000,7 +2086,8 @@ class PlateGirderWelded(Member):
                     
                     #web crippling check
                     web_height = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
-                    is_safe, self.F_q = check_web_crippling(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, self.gamma_m0, self.logger, debug=self.debug)
+                    tf_used = min(self.top_flange_thickness, self.bottom_flange_thickness) if self.top_flange_thickness > 0 and self.bottom_flange_thickness > 0 else (self.top_flange_thickness or self.bottom_flange_thickness)
+                    is_safe, self.F_q = check_web_crippling_IS800(self.load.shear_force, self.b1, self.web_thickness, self.material.fy, web_height, tf_used, self.gamma_m0, self.logger, debug=self.debug)
                     if is_safe:
                         self.shearflag3 = True  # Fixed from False to True
                         # self.logger.info("Web Crippling Check passed")
@@ -2059,7 +2146,11 @@ class PlateGirderWelded(Member):
                     # Calculate c per IS 800:2007 when not provided
                     self.c = self.calculate_stiffener_spacing_IS800()
                 else:
-                    self.c = float(self.c)
+                    try:
+                        self.c = float(self.c)
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Invalid intermediate stiffener spacing '{self.c}'; using calculated value")
+                        self.c = self.calculate_stiffener_spacing_IS800()
                 self.design_flag2 = min_web_thickness_thick_web(self.eff_depth,self.web_thickness,self.epsilon,self.stiffener_type,self.c, debug=self.debug)
                 print('DESIGN FLAG2',self.design_flag2)
                 if self.design_flag2 == True:
@@ -2128,9 +2219,10 @@ class PlateGirderWelded(Member):
 
                     # Web Crippling Check for thin web (same as thick web path)
                     web_height = self.total_depth - self.top_flange_thickness - self.bottom_flange_thickness
-                    is_safe_crip, self.F_q = check_web_crippling(
+                    tf_used = min(self.top_flange_thickness, self.bottom_flange_thickness) if self.top_flange_thickness > 0 and self.bottom_flange_thickness > 0 else (self.top_flange_thickness or self.bottom_flange_thickness)
+                    is_safe_crip, self.F_q = check_web_crippling_IS800(
                         self.load.shear_force, self.b1, self.web_thickness,
-                        self.material.fy, web_height, self.gamma_m0, self.logger
+                        self.material.fy, web_height, tf_used, self.gamma_m0, self.logger
                     )
                     self.shearflag3 = is_safe_crip
 
@@ -2483,6 +2575,10 @@ class PlateGirderWelded(Member):
              self.end_panel_stiffener_thickness = "N/A"
              self.x1 = "N/A"
              self.x2 = "N/A"
+             # Reset the raw stiffener spacing too: the CAD builder gates on self.c, so
+             # leaving a numeric value here would draw intermediate stiffeners the design
+             # says do not exist (thick web has no ITS).
+             self.c = "N/A"
         else:
              self.intstiffener_thk = self.IntStiffThickness
              self.longstiffener_thk = self.LongStiffThickness
