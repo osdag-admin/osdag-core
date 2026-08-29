@@ -65,6 +65,10 @@ class ButtJointBolted(MomentConnection):
     def edit_tabs(self):
         return []  # Keep original empty implementation
 
+    def refresh_input_dock(self):
+        # Butt joint has no section-designation fields; skip Connection's default refresh
+        return []
+
     def input_dictionary_design_pref(self):
         design_input = []
 
@@ -77,7 +81,8 @@ class ButtJointBolted(MomentConnection):
 
         # Detailing preferences
         design_input.append(("Detailing", TYPE_COMBOBOX, [
-            KEY_DP_DETAILING_EDGE_TYPE  # For edge preparation method
+            KEY_DP_DETAILING_EDGE_TYPE,       # For edge preparation method
+            KEY_DP_DETAILING_PACKING_PLATE    # Yes/No; applies β_pkg per IS 800:2007 Cl. 10.3.3.3
         ]))
 
         return design_input
@@ -109,7 +114,7 @@ class ButtJointBolted(MomentConnection):
     def detailing_values(self, input_dictionary):
         values = {
             KEY_DP_DETAILING_EDGE_TYPE: 'Sheared or hand flame cut',
-            # KEY_DP_DETAILING_PACKING_PLATE: 'Yes',  # Commented out packing plate preference
+            KEY_DP_DETAILING_PACKING_PLATE: 'Yes',
         }
 
         for key in values.keys():
@@ -118,16 +123,16 @@ class ButtJointBolted(MomentConnection):
 
         detailing = []
 
-        # Edge preparation method as per Cl. 10.2.4 of IS:800:2007
+        # Edge preparation method; affects min edge/end distances per IS 800:2007 Cl. 10.2.4.2
         t1 = (KEY_DP_DETAILING_EDGE_TYPE, KEY_DISP_DP_DETAILING_EDGE_TYPE, TYPE_COMBOBOX,
             ['Sheared or hand flame cut', 'Rolled, machine-flame cut, sawn and planed'],
             values[KEY_DP_DETAILING_EDGE_TYPE])
         detailing.append(t1)
 
-        # Commented out packing plate design preference
-        # t3 = (KEY_DP_DETAILING_PACKING_PLATE, KEY_DISP_DP_DETAILING_PACKING_PLATE, TYPE_COMBOBOX,
-        #       ['Yes', 'No'], values[KEY_DP_DETAILING_PACKING_PLATE])
-        # detailing.append(t3)
+        # Packing plate required when plates of different thickness are joined (IS 800:2007 Cl. 10.3.3.3)
+        t3 = (KEY_DP_DETAILING_PACKING_PLATE, KEY_DISP_DP_DETAILING_PACKING_PLATE, TYPE_COMBOBOX,
+              ['Yes', 'No'], values[KEY_DP_DETAILING_PACKING_PLATE])
+        detailing.append(t3)
 
         t4 = ("textBrowser", "", TYPE_TEXT_BROWSER, DETAILING_DESCRIPTION_LAPJOINT, None)
         detailing.append(t4)
@@ -388,6 +393,10 @@ class ButtJointBolted(MomentConnection):
                self.len_conn if flag else '', True)
         out_list.append(t20)
 
+        t28 = (KEY_OUT_LENGTH_COVER_PLATE, KEY_OUT_DISP_LENGTH_COVER_PLATE, TYPE_TEXTBOX,
+               self.cover_plate_length if flag else '', True)
+        out_list.append(t28)
+
         # Populate Hover Dict (Butt Joint Bolted)
         self.hover_dict["Plate 1"] = (
             f"<b>Plate 1</b><br>"
@@ -403,6 +412,7 @@ class ButtJointBolted(MomentConnection):
 
         self.hover_dict["Cover Plate"] = (
             f"<b>Cover Plate</b><br>"
+            f"Length: {round(float(self.platec.length), 2) if flag and self.platec.length else ''} mm<br>"
             f"Width: {round(float(self.platec.height), 2) if flag else ''} mm<br>"
             f"Thickness: {round(float(self.platec.thickness_provided), 2) if flag and self.platec.thickness_provided else ''} mm"
         )
@@ -610,21 +620,23 @@ class ButtJointBolted(MomentConnection):
         cover_plate_type_str = design_dictionary[KEY_COVER_PLATE]
         self.cover_plate_type = cover_plate_type_str  # Store for CAD generation
 
-        # Cover plate and packing plate logic as per documentation
         available_thicknesses = [float(thk) for thk in PLATE_THICKNESS_SAIL]
         if "double" in cover_plate_type_str.lower():
             self.planes = 2
-            Tcp = math.ceil((9.0 / 8.0) * Tmin)  # Double cover plate thickness as per Eq. 3.2
+            # Double cover plate: each plate area ≥ A_main/2 (load shared equally); 5/8 × Tmin
+            # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+            Tcp = math.ceil((5.0 / 8.0) * Tmin)
             self.calculated_cover_plate_thickness = min(
                 [thk for thk in available_thicknesses if thk >= Tcp],
                 default=Tcp
             )
 
-            # Packing plate logic as per Cl. 10.3.3.2
-            if abs(plate1_thk - plate2_thk) > 0.001:
+            # Packing plate as per IS 800:2007 Cl. 10.3.3.3; only when user preference is 'Yes'
+            use_packing = design_dictionary.get(KEY_DP_DETAILING_PACKING_PLATE, 'Yes') == 'Yes'
+            if use_packing and abs(plate1_thk - plate2_thk) > 0.001:
                 self.packing_plate_thickness = abs(plate1_thk - plate2_thk)
                 if self.packing_plate_thickness > 6.0:
-                    # βpkg calculation as per Eq. 3.3
+                    # β_pkg = 1 - 0.0125*t_pkg per IS 800:2007 Cl. 10.3.3.3
                     self.beta_pkg = (1.0 - 0.0125 * self.packing_plate_thickness)
                 else:
                     self.beta_pkg = 1.0
@@ -634,7 +646,9 @@ class ButtJointBolted(MomentConnection):
 
         elif "single" in cover_plate_type_str.lower():
             self.planes = 1
-            Tcp = math.ceil((5.0 / 8.0) * Tmin)  # Single cover plate thickness as per Eq. 3.1
+            # Single cover plate: plate area ≥ A_main (full load alone); 9/8 × Tmin
+            # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+            Tcp = math.ceil((9.0 / 8.0) * Tmin)
             self.calculated_cover_plate_thickness = min(
                 [thk for thk in available_thicknesses if thk >= Tcp],
                 default=Tcp
@@ -901,10 +915,17 @@ class ButtJointBolted(MomentConnection):
         self.number_bolts = self.rows * self.cols
 
         # Calculate connection length (determined by columns along pitch direction)
+        # Connection length represents the physical length of the bolt group on one side of the joint line.
+        # Reference: Symmetrical layout rules. N. Subramanian, Design of Steel Structures, Sec. 3.8 / Fig 3.20.
         if self.cols > 1:
             self.len_conn = (self.cols - 1) * self.bolt.min_pitch_round + 2 * self.bolt.min_end_dist_round
         else:
             self.len_conn = 2 * self.bolt.min_end_dist_round
+
+        # Cover plate length spans symmetrically across the joint.
+        # Formula: L_cp = 2 * L_conn
+        # Reference: Symmetrical cover plate design. N. Subramanian, Design of Steel Structures, Sec. 3.8 / Fig 3.20.
+        self.cover_plate_length = 2 * self.len_conn
 
         if self.number_bolts >= 2 and count == 0:
             self.design_status = True
@@ -928,12 +949,12 @@ class ButtJointBolted(MomentConnection):
 
         if self.bij >= 0.75 and self.bij <= 1.0:
             self.cap_red = True
-            self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.bij
             if self.bolt.bolt_type == TYP_BEARING:
+                self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.bij
                 self.bolt.bolt_capacity = min(self.bolt.bolt_shear_capacity, self.bolt.bolt_bearing_capacity)
             else:
-                self.slip_res = self.bolt.bolt_shear_capacity
-                self.bolt.bolt_capacity = self.slip_res
+                self.bolt.bolt_capacity = self.bolt.bolt_capacity * self.bij
+                self.slip_res = self.bolt.bolt_capacity
 
         self.design_status = True
         self.check_capacity_reduction_2(design_dictionary)
@@ -950,12 +971,12 @@ class ButtJointBolted(MomentConnection):
 
         if self.blg < self.bij and self.blg != 0:
             self.cap_red = True
-            self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.blg
             if self.bolt.bolt_type == TYP_BEARING:
+                self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.blg
                 self.bolt.bolt_capacity = min(self.bolt.bolt_shear_capacity, self.bolt.bolt_bearing_capacity)
             else:
-                self.slip_res = self.bolt.bolt_shear_capacity
-                self.bolt.bolt_capacity = self.slip_res
+                self.bolt.bolt_capacity = self.bolt.bolt_capacity * self.blg
+                self.slip_res = self.bolt.bolt_capacity
 
             # Continue design with reduced capacity - recursion limit handled in number_r_c_bolts
             self.number_r_c_bolts(design_dictionary,1,0)
@@ -996,6 +1017,7 @@ class ButtJointBolted(MomentConnection):
                 self.final_end_dist = self.bolt.min_end_dist_round
                 # Recalculate connection length for single row
                 self.len_conn = (self.cols - 1) * self.bolt.min_pitch_round + 2 * self.bolt.min_end_dist_round
+                self.cover_plate_length = 2 * self.len_conn
                 self.design_status = True
             # Check maximum gauge as per Cl. 10.2.3.1
             elif gauge_dist > self.max_gauge_round:
@@ -1072,7 +1094,11 @@ class ButtJointBolted(MomentConnection):
             # Check if utilization ratio is less than 1 for valid design
             if overall_util >= 1:
                 self.design_status = False
+                governing = "bolt" if bolt_util >= base_util else "plate (base metal)"
+                self.design_error = f"Utilization ratio >= 1.0; governed by insufficient {governing} capacity."
                 self.logger.error(": Utilization ratio is greater than or equal to 1. Design is not safe.")
+                self.logger.error(f": Design unsafe — governed by insufficient {governing} capacity "
+                                  f"(UR_bolt = {_format_util(bolt_util)}, UR_plate = {_format_util(base_util)}).")
                 self.logger.info(" :=========End Of design===========")
                 return
 
@@ -1100,8 +1126,8 @@ class ButtJointBolted(MomentConnection):
             self.plate2.height = plate_width
             self.plate2.thickness_provided = float(self.plate2thk)
             
-            # Cover plate dimensions (same as main plates)
-            self.platec.length = plate_length
+            # Cover plate dimensions
+            self.platec.length = self.cover_plate_length
             self.platec.height = plate_width
             self.platec.thickness_provided = float(self.calculated_cover_plate_thickness)
             
@@ -1138,6 +1164,8 @@ class ButtJointBolted(MomentConnection):
         else:
             n_holes = max(self.cols, 1)
             hole_dia = self.bolt.dia_hole if hasattr(self.bolt, 'dia_hole') else 0.0
+            self.n_holes = n_holes          # number of bolt-hole columns; for area report
+            self.bolt_hole_dia = hole_dia   # hole diameter used for net area; for area report
             net_width = float(self.width) - n_holes * hole_dia
 
             if net_width <= 0:
@@ -1147,10 +1175,10 @@ class ButtJointBolted(MomentConnection):
                 return False
 
             self.A_n = plate_thk_min * net_width
-            shear_lag_factor = 0.7  # IS 800:2007 Cl.6.3.3 for butt joints
 
             T_dg = self.A_g * fy / self.gamma_m0
-            T_dn = 0.9 * self.A_n * fu * shear_lag_factor / self.gamma_m1
+            # Plates: full cross-section connected via cover plates → no shear lag (IS 800:2007 Cl. 6.3)
+            T_dn = 0.9 * self.A_n * fu / self.gamma_m1
             self.T_dg = T_dg
             self.T_dn = T_dn
             self.T_db = min(T_dg, T_dn)
@@ -1183,7 +1211,7 @@ class ButtJointBolted(MomentConnection):
 
     def save_design(self, popup_summary):
         """
-        Generate the LaTeX design report for Lap Joint Bolted Connection (Tension/Compression)
+        Generate the LaTeX design report for Butt Joint Bolted Connection (Tension/Compression)
         per IS 800:2007.
         """
         try:
@@ -1255,6 +1283,7 @@ class ButtJointBolted(MomentConnection):
             pitch = f2(g('final_pitch', 0.0), 0.0)
             gauge = f2(g('final_gauge', 0.0), 0.0)
             e_dist = f2(g('final_edge_dist', 0.0), 0.0)
+            end_d = f2(g('final_end_dist', 0.0), 0.0)  # end distance along load/pitch direction
             
             t_fu_fy_list = getattr(self, 'bolt_conn_plates_t_fu_fy', [])
             if t_fu_fy_list and len(t_fu_fy_list) > 0:
@@ -1266,10 +1295,15 @@ class ButtJointBolted(MomentConnection):
 
             base_metal_capacity_kN = f2(g('base_metal_capacity_kN', 0.0), 0.0)
             
-            A_g = f2(g('A_g', 0.0), 0.0)
-            T_dg = f2(g('T_dg', 0.0), 0.0)
-            T_dn = f2(g('T_dn', 0.0), 0.0)
-            T_db = f2(g('T_db', 0.0), 0.0)
+            A_g          = f2(g('A_g', 0.0), 0.0)
+            A_n          = f2(g('A_n', 0.0), 0.0)
+            n_holes_disp = int(g('n_holes', max(cols, 1)))
+            d_hole_disp  = f2(g('bolt_hole_dia', 0.0), 0.0)
+            # self.T_dg/T_dn/T_db are stored in Newtons by check_base_metal_strength();
+            # convert to kN for the report (base_metal_capacity_kN is already kN).
+            T_dg = f2(g('T_dg', 0.0) / 1000.0, 0.0)
+            T_dn = f2(g('T_dn', 0.0) / 1000.0, 0.0)
+            T_db = f2(g('T_db', 0.0) / 1000.0, 0.0)
             
             overall_ur = round(g('utilization_ratio', 0.0), 3)
 
@@ -1286,10 +1320,13 @@ class ButtJointBolted(MomentConnection):
                 "Type *": bolt_type,
                 f"{'Tensile' if not is_comp else 'Axial'} Force (kN) *": axial_kN,
                 "Additional inputs": "TITLE",
-                "Bolt Hole Type": getattr(self.bolt, 'boltholetype', 'Standard'),
-                "Slip Factor (μf)": getattr(self.bolt, 'mu_f', 'N/A'),
+                "Bolt Hole Type": getattr(self.bolt, 'bolt_hole_type', 'Standard'),
                 "Edge Preparation Method": edge_type
             }
+
+            # Slip factor is only meaningful for friction-grip (HSFG) bolts; omit for bearing bolts.
+            if bolt_type != "Bearing Bolt":
+                self.report_input["Slip Factor (μf)"] = getattr(self.bolt, 'mu_f', 'N/A')
 
             self.report_check = []
 
@@ -1308,18 +1345,26 @@ class ButtJointBolted(MomentConnection):
             cp_req.append(NoEscape(r'\begin{aligned}'))
             
             if "double" in cover_plate_type.lower():
-                t_req = math.ceil(1.125 * t_min) # 9/8 * t_min
+                # Double cover plate: each plate area ≥ A_main/2 (load shared equally); 5/8 × Tmin
+                # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+                t_req = math.ceil(0.625 * t_min)  # 5/8 * t_min
                 cp_req.append(NoEscape(r'\text{For Double Cover Plates:}\\'))
-                cp_req.append(NoEscape(r't_{cp, req} &= \frac{9}{8} \cdot t_{\min}\\'))
-                cp_req.append(NoEscape(r'&= \frac{9}{8} \times ' + str(t_min) + r'\\'))
-                cp_req.append(NoEscape(r'&= ' + str(t_req) + r' \text{ mm}\\'))
-            else: # Single Cover Plate
-                t_req = math.ceil(0.625 * t_min) # 5/8 * t_min
-                cp_req.append(NoEscape(r'\text{For Single Cover Plate:}\\'))
                 cp_req.append(NoEscape(r't_{cp, req} &= \frac{5}{8} \cdot t_{\min}\\'))
                 cp_req.append(NoEscape(r'&= \frac{5}{8} \times ' + str(t_min) + r'\\'))
                 cp_req.append(NoEscape(r'&= ' + str(t_req) + r' \text{ mm}\\'))
+            else:  # Single Cover Plate
+                # Single cover plate: plate area ≥ A_main (full load alone); 9/8 × Tmin
+                # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+                t_req = math.ceil(1.125 * t_min)  # 9/8 * t_min
+                cp_req.append(NoEscape(r'\text{For Single Cover Plate:}\\'))
+                cp_req.append(NoEscape(r't_{cp, req} &= \frac{9}{8} \cdot t_{\min}\\'))
+                cp_req.append(NoEscape(r'&= \frac{9}{8} \times ' + str(t_min) + r'\\'))
+                cp_req.append(NoEscape(r'&= ' + str(t_req) + r' \text{ mm}\\'))
 
+            # IS 800:2007 has no explicit cover-plate-thickness clause; this rule is from
+            # standard design practice (reviewer requested the source be shown in the report).
+            cp_req.append(NoEscape(r'&[\text{Not in IS 800:2007; ref. N. Subramanian,}\\'))
+            cp_req.append(NoEscape(r'&\ \text{Design of Steel Structures / IBR practice}]\\'))
             cp_req.append(NoEscape(r'\end{aligned}'))
             
             t_cp_prov = float(self.calculated_cover_plate_thickness) if hasattr(self, 'calculated_cover_plate_thickness') else t_req
@@ -1329,7 +1374,22 @@ class ButtJointBolted(MomentConnection):
             cp_status = "PASS" if t_cp_prov >= t_req else "FAIL"
             self.report_check.append(["Cover Plate Thickness", cp_req, cp_prov, cp_status])
 
-            # 1.2 Packing Plate (Cl. 10.3.3.2)
+            # 1.2 Cover Plate Length
+            # Reference: Symmetrical layout rules. N. Subramanian, Design of Steel Structures, Sec. 3.8.
+            cp_len_req = Math(inline=True)
+            cp_len_req.append(NoEscape(r'\begin{aligned}'))
+            cp_len_req.append(NoEscape(r'L_{cp} &= 2 \cdot L_{conn}\\'))
+            cp_len_req.append(NoEscape(r'&= 2 \times ' + f'{self.len_conn:.1f}' + r'\\'))
+            cp_len_req.append(NoEscape(r'&= ' + f'{self.cover_plate_length:.1f}' + r' \text{ mm}\\'))
+            cp_len_req.append(NoEscape(r'&[\text{Ref. N. Subramanian, Sec. 3.8}]'))
+            cp_len_req.append(NoEscape(r'\end{aligned}'))
+            
+            cp_len_prov = Math(inline=True)
+            cp_len_prov.append(NoEscape(r'L_{cp, prov} = ' + f'{self.cover_plate_length:.1f}' + r' \text{ mm}'))
+            
+            self.report_check.append(["Cover Plate Length", cp_len_req, cp_len_prov, "PASS"])
+
+            # 1.3 Packing Plate (Cl. 10.3.3.2)
             packing_thk = float(getattr(self, 'packing_plate_thickness', 0.0))
             if packing_thk > 0:
                 pack_req = Math(inline=True)
@@ -1354,7 +1414,10 @@ class ButtJointBolted(MomentConnection):
 
             d = float(self.bolt.bolt_diameter_provided)
             bolt_grade = float(self.bolt.bolt_grade_provided)
-            f_ub = int(bolt_grade * 100)
+            # fub = first digit of property class x 100 (e.g. 4.6 -> 400, 8.8 -> 800).
+            # Use the solver's DB value (IS1367_Part3_2002.get_bolt_fu_fy) as source of truth;
+            # fall back to int(grade)*100 (NOT int(grade*100), which wrongly gives 460 for 4.6).
+            f_ub = int(getattr(self.bolt, 'bolt_fu', None) or int(bolt_grade) * 100)
             
             plate1_thk_raw = float(self.plate1.thickness[0]) if isinstance(self.plate1.thickness, list) else float(self.plate1.thickness)
             plate2_thk_raw = float(self.plate2.thickness[0]) if isinstance(self.plate2.thickness, list) else float(self.plate2.thickness)
@@ -1411,42 +1474,31 @@ class ButtJointBolted(MomentConnection):
 
             else:  # Bearing Bolt
                 # ========== SHEAR CAPACITY (Cl. 10.3.3) ==========
-                # Strategy: Use the Solver's final Shear Capacity (bolt_shear_kN) as the source of truth to ensure Report matches Dock.
-                # Back-calculate the Effective Area (A_eff) that yields this capacity, then display it in the formula.
-                # This handles cases where Solver uses different Area assumptions (e.g. shank vs net) or different reduction factors.
-                
-                V_dsb_kN = bolt_shear_kN 
-                V_nsb_val = V_dsb_kN * gamma_mb
-
-                try:
-                    vals = str(bolt_grade_prov).split('.')
-                    if len(vals) >= 2:
-                        f_ub_val = int(vals[0]) * 100
-                    else:
-                        f_ub_val = 400
-                except (ValueError, TypeError, IndexError):
-                    f_ub_val = 400
-
+                # Forward calculation matching the solver (component.Bolt.calculate_bolt_capacity):
+                #   V_nsb = f_ub/sqrt(3) * (n_n*A_nb + n_s*A_sb)   [Cl. 10.3.3]
+                #   V_dsb(unreduced) = V_nsb / gamma_mb
+                #   V_dsb = beta_lj * beta_lg * V_dsb(unreduced)   [Cl. 10.3.3.1 / 10.3.3.2]
+                # The solver's reduced value (bolt_shear_kN) is the source of truth shown last.
                 n_n = self.planes if hasattr(self, 'planes') else 1
-                
-                # Back-calculate effective area per bolt per plane (forcing n_s=0 for display simplicity)
-                # V_nsb = (f_ub / sqrt(3)) * (n_n * A_eff)
-                if n_n > 0 and f_ub_val > 0:
-                     A_eff = (V_nsb_val * 1000.0 * math.sqrt(3.0)) / (f_ub_val * n_n)
-                else:
-                     A_eff = 0.0
+                n_s = 0
+                A_nb = f2(getattr(self.bolt, 'bolt_net_area', bolt_net_area), bolt_net_area)
+
+                V_nsb_kN = (f_ub / math.sqrt(3.0)) * (n_n * A_nb + n_s * bolt_shank_area) / 1000.0
+                V_dsb_unreduced_kN = V_nsb_kN / gamma_mb
+                V_dsb_kN = bolt_shear_kN  # final, reduced by beta_lj/beta_lg (source of truth)
 
                 shear_req = Math(inline=True)
                 shear_req.append(NoEscape(r'\begin{aligned}\\'))
-                shear_req.append(NoEscape(r'V_{dsb} &= \frac{V_{nsb}}{\gamma_{mb}}\\\\'))
                 shear_req.append(NoEscape(r'V_{nsb} &= \frac{f_{ub}}{\sqrt{3}} \cdot (n_n \cdot A_{nb} + n_s \cdot A_{sb})\\'))
-                shear_req.append(NoEscape(r'&= \frac{' + str(f_ub_val) + r'}{\sqrt{3}} \times (' + str(n_n) + r' \times ' + f'{A_eff:.2f}' + r' + 0)\\'))
-                shear_req.append(NoEscape(r'&= ' + f'{V_nsb_val:.2f}' + r' \text{ kN}\\\\'))
-                shear_req.append(NoEscape(r'V_{dsb} &= \frac{' + f'{V_nsb_val:.2f}' + r'}{' + str(gamma_mb) + r'}\\'))
+                shear_req.append(NoEscape(r'&= \frac{' + str(f_ub) + r'}{\sqrt{3}} \times (' + str(n_n) + r' \times ' + f'{A_nb:.2f}' + r')\\'))
+                shear_req.append(NoEscape(r'&= ' + f'{V_nsb_kN:.2f}' + r' \text{ kN}\\\\'))
+                shear_req.append(NoEscape(r'V_{dsb} &= \frac{V_{nsb}}{\gamma_{mb}} = \frac{' + f'{V_nsb_kN:.2f}' + r'}{' + f'{gamma_mb:.2f}' + r'}\\'))
+                shear_req.append(NoEscape(r'&= ' + f'{V_dsb_unreduced_kN:.2f}' + r' \text{ kN}\\\\'))
+                shear_req.append(NoEscape(r'V_{dsb,\,red} &= \beta_{lj} \cdot \beta_{lg} \cdot V_{dsb}\\'))
                 shear_req.append(NoEscape(r'&= ' + f'{V_dsb_kN:.2f}' + r' \text{ kN}\\'))
-                shear_req.append(NoEscape(r'&[\text{Ref. Cl. 10.3.3}]'))
+                shear_req.append(NoEscape(r'&[\text{Ref. Cl. 10.3.3; reductions below}]'))
                 shear_req.append(NoEscape(r'\end{aligned}'))
-                
+
                 self.report_check.append(["Shear Capacity", "", shear_req, ""])
 
                 # ========== BEARING CAPACITY (Cl. 10.3.4) ==========
@@ -1728,8 +1780,29 @@ class ButtJointBolted(MomentConnection):
             ])
             
             self.report_check.append([
-                "Bolt Pattern", "2", f"Arrangement: {rows} rows × {cols} columns", ""
+                "Bolt Pattern", f"{n_bolts}", f"Arrangement: {rows} rows × {cols} columns", ""
             ])
+
+            # 2.5.2 Connection Length
+            # Reference: Symmetrical layout rules. N. Subramanian, Design of Steel Structures, Sec. 3.8 / Fig 3.20.
+            conn_len_req = Math(inline=True)
+            conn_len_req.append(NoEscape(r'\begin{aligned}'))
+            if cols > 1:
+                conn_len_req.append(NoEscape(r'L_{conn} &= (n_c - 1) \cdot p + 2 \cdot e_{end}\\'))
+                conn_len_req.append(NoEscape(r'&= (' + str(cols) + r' - 1) \times ' + str(pitch) + r' + 2 \times ' + str(end_d) + r'\\'))
+            else:
+                conn_len_req.append(NoEscape(r'L_{conn} &= 2 \cdot e_{end}\\'))
+                conn_len_req.append(NoEscape(r'&= 2 \times ' + str(end_d) + r'\\'))
+            conn_len_req.append(NoEscape(r'&= ' + f'{self.len_conn:.1f}' + r' \text{ mm}\\'))
+            conn_len_req.append(NoEscape(r'&\text{(extreme-bolt distance along load} + 2 e_{end};\\'))
+            conn_len_req.append(NoEscape(r'&\ \text{distinct from } l_j \text{ used for long-joint reduction)}\\'))
+            conn_len_req.append(NoEscape(r'&[\text{Ref. N. Subramanian, Sec. 3.8}]'))
+            conn_len_req.append(NoEscape(r'\end{aligned}'))
+            
+            conn_len_prov = Math(inline=True)
+            conn_len_prov.append(NoEscape(r'L_{conn, prov} = ' + f'{self.len_conn:.1f}' + r' \text{ mm}'))
+            
+            self.report_check.append(["Connection Length", conn_len_req, conn_len_prov, "PASS"])
 
             #================================
             # Section 2.6: Base Metal Strength
@@ -1737,6 +1810,23 @@ class ButtJointBolted(MomentConnection):
             self.report_check.append([
                 "SubSection", "Base Metal Strength", "|p{4cm}|p{5cm}|p{5.5cm}|p{1.5cm}|"
             ])
+
+            # IS 800:2007 Cl. 6.2: gross section area = width × t_min
+            area_calc = Math(inline=True)
+            area_calc.append(NoEscape(r'\begin{aligned}'))
+            area_calc.append(NoEscape(r'A_g &= b \times t_{\min}\\'))
+            area_calc.append(NoEscape(
+                r'&= ' + str(width) + r' \times ' + str(plate_thk_min)
+                + r' = ' + str(A_g) + r' \text{ mm}^2'))
+            if not is_comp:
+                # IS 800:2007 Cl. 6.3: net area deducts bolt holes from gross width
+                area_calc.append(NoEscape(r'\\A_n &= (b - n_h \cdot d_0) \times t_{\min}\\'))
+                area_calc.append(NoEscape(
+                    r'&= (' + str(width) + r' - ' + str(n_holes_disp)
+                    + r' \times ' + str(d_hole_disp) + r') \times '
+                    + str(plate_thk_min) + r' = ' + str(A_n) + r' \text{ mm}^2'))
+            area_calc.append(NoEscape(r'\end{aligned}'))
+            self.report_check.append(["Gross / Net Area", "", area_calc, ""])
 
             if is_comp:
                 base_req = Math(inline=True)
@@ -1753,25 +1843,21 @@ class ButtJointBolted(MomentConnection):
                 # 1. Gross Section Yielding
                 yield_req = Math(inline=True)
                 yield_req.append(NoEscape(r'\begin{aligned}\\'))
-                yield_req.append(NoEscape(r'T_{dg} &= \frac{A_g \cdot f_y}{\gamma_{m0}}\\\\'))
-                yield_req.append(NoEscape(r'&= \frac{' + str(A_g) + r' \times ' + str(fy) + r'}{1.10}\\\\'))
+                yield_req.append(NoEscape(r'T_{dg} &= \frac{A_g \cdot f_y}{\gamma_{m0} \times 1000}\\\\'))
+                yield_req.append(NoEscape(r'&= \frac{' + str(A_g) + r' \times ' + str(fy) + r'}{1.10 \times 1000}\\\\'))
                 yield_req.append(NoEscape(r'&= ' + f'{T_dg:.2f}' + r' \text{ kN}\\'))
                 yield_req.append(NoEscape(r'&[\text{Ref. Cl. 6.2}]'))
                 yield_req.append(NoEscape(r'\end{aligned}'))
                 self.report_check.append(["Gross Section Yield", "", yield_req, ""])
 
                 # 2. Net Section Rupture
-                # Back calculate An for display accuracy
-                # T_dn = 0.9 * An * fu / 1.25 (in kN)
-                if fu > 0:
-                    An_disp = (T_dn * 1000.0 * 1.25) / (0.9 * fu)
-                else:
-                    An_disp = 0.0
-                
+                # Plates: full cross-section connected via cover plates → no shear lag (IS 800:2007 Cl. 6.3)
                 rup_req = Math(inline=True)
                 rup_req.append(NoEscape(r'\begin{aligned}\\'))
-                rup_req.append(NoEscape(r'T_{dn} &= \frac{0.9 A_n f_u}{\gamma_{m1}}\\'))
-                rup_req.append(NoEscape(r'&= \frac{0.9 \times ' + f'{An_disp:.2f}' + r' \times ' + str(fu) + r'}{1.25}\\'))
+                rup_req.append(NoEscape(r'T_{dn} &= \frac{0.9 \cdot A_n \cdot f_u}{\gamma_{m1} \times 1000}\\'))
+                rup_req.append(NoEscape(
+                    r'&= \frac{0.9 \times '
+                    + str(A_n) + r' \times ' + str(fu) + r'}{1.25 \times 1000}\\'))
                 rup_req.append(NoEscape(r'&= ' + f'{T_dn:.2f}' + r' \text{ kN}\\'))
                 rup_req.append(NoEscape(r'&[\text{Ref. Cl. 6.3}]'))
                 rup_req.append(NoEscape(r'\end{aligned}'))
@@ -1829,12 +1915,31 @@ class ButtJointBolted(MomentConnection):
 
             bolt_capacity_total = f2(bolt_final_cap * n_bolts, 0.0)
             bolt_ur = axial_kN / bolt_capacity_total if bolt_capacity_total > 0 else 999.0
-            
+
             plate_ur = axial_kN / base_metal_capacity_kN if base_metal_capacity_kN > 0 else 999.0
-            
+
             # Overall UR is max of both
             overall_ur_val = max(bolt_ur, plate_ur)
             overall_ur = round(overall_ur_val, 3)
+
+            # Total bolt-group capacity, shown with intermediate substitution.
+            # V_db already embeds the long-joint (beta_lj) and large-grip (beta_lg) reductions.
+            grp_req = Math(inline=True)
+            grp_req.append(NoEscape(r'\begin{aligned}\\'))
+            grp_req.append(NoEscape(r'V_{group} &= n \cdot V_{db}\\'))
+            grp_req.append(NoEscape(r'&\text{(}V_{db}\text{ already includes }\beta_{lj},\beta_{lg}\text{)}\\'))
+            grp_req.append(NoEscape(r'&= ' + str(n_bolts) + r' \times ' + str(bolt_final_cap) + r'\\'))
+            grp_req.append(NoEscape(r'&= ' + str(bolt_capacity_total) + r' \text{ kN}'))
+            grp_req.append(NoEscape(r'\end{aligned}'))
+            self.report_check.append(["Total Bolt Group Capacity", "", grp_req, ""])
+
+            # Explicit governing component (which check controls the design).
+            governing = "Bolt" if bolt_ur >= plate_ur else "Plate"
+            self.report_check.append([
+                "Governing Component", "",
+                f"{governing} (UR_bolt = {bolt_ur:.3f}, UR_plate = {plate_ur:.3f})",
+                ""
+            ])
 
             ur_req = Math(inline=True)
             ur_req.append(NoEscape(r'\begin{aligned}\\'))
@@ -1853,10 +1958,10 @@ class ButtJointBolted(MomentConnection):
             Disp_2d_image = []
             Disp_3D_image = "/ResourceFiles/images/3d.png"
             rel_path = os.path.abspath(".").replace("\\", "/")
-            fname_no_ext = popup_summary.get("filename", "LapJointBoltedReport")
+            fname_no_ext = popup_summary.get("filename", "ButtJointBoltedReport")
             folder = popup_summary.get('folder', './reports')
             os.makedirs(folder, exist_ok=True)
-            
+
             CreateLatex.save_latex(
                 CreateLatex(), self.report_input, self.report_check,
                 popup_summary, fname_no_ext, rel_path, Disp_2d_image, Disp_3D_image,

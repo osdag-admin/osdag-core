@@ -69,6 +69,10 @@ class ButtJointWelded(MomentConnection):
     def edit_tabs(self):
         return []  # Keep original empty implementation
 
+    def refresh_input_dock(self):
+        # Butt joint has no section-designation fields; skip Connection's default refresh
+        return []
+
     def input_dictionary_design_pref(self):
         design_input = []
         design_input.append(("Weld", TYPE_COMBOBOX, [
@@ -384,7 +388,7 @@ class ButtJointWelded(MomentConnection):
         out_list.append(t38)
 
         t28 = (KEY_OUT_LENGTH_COVER_PLATE, KEY_OUT_DISP_LENGTH_COVER_PLATE, TYPE_TEXTBOX,
-               round(self.weld_length_provided, 1) if flag else '', True)
+               round(self.cover_plate_length, 1) if flag and hasattr(self, 'cover_plate_length') else '', True)
         out_list.append(t28)
 
         t47 = (KEY_OUT_THICKNESS_COVER_PLATE, KEY_OUT_DISP_THICKNESS_COVER_PLATE, TYPE_TEXTBOX,
@@ -418,7 +422,7 @@ class ButtJointWelded(MomentConnection):
         out_list.append(t26)
 
         t27 = (KEY_OUT_BOLT_CONN_LEN, KEY_OUT_DISP_BOLT_CONN_LEN, TYPE_TEXTBOX,
-               round(self.weld_length_provided, 1) if flag else '', True)
+               round(self.connection_length, 1) if flag and hasattr(self, 'connection_length') else '', True)
         out_list.append(t27)
 
         t29 = (KEY_OUT_DESIGN_FOR, KEY_OUT_DISP_DESIGN_FOR, TYPE_TEXTBOX,
@@ -426,7 +430,7 @@ class ButtJointWelded(MomentConnection):
         out_list.append(t29)
 
         # Populate Hover Dict (Butt Joint Welded) with actual dimensions
-        plate_length = getattr(self, 'weld_length_provided', 0)
+        plate_length = getattr(self, 'cover_plate_length', 0)
         plate_width = getattr(self, 'plates_width', 0)
         plate1_thk = float(self.plate1.thickness[0]) if hasattr(
             self, 'plate1') and self.plate1 and self.plate1.thickness else 0
@@ -644,6 +648,8 @@ class ButtJointWelded(MomentConnection):
                          fabrication=design_dictionary.get(KEY_DP_FAB_SHOP, KEY_DP_FAB_SHOP))
         # Set weld size after creating the weld object
         self.weld.size = design_dictionary[KEY_WELD_SIZE]
+        # Store for report; save_design() reads self.edgetype via getattr(self, 'edgetype', ...)
+        self.edgetype = design_dictionary.get(KEY_DP_DETAILING_EDGE_TYPE, 'Sheared or hand flame cut')
         # Start design process
         print("input values are set. Doing preliminary member checks")
         self.member_design_status = False
@@ -659,27 +665,29 @@ class ButtJointWelded(MomentConnection):
         cover_plate_type_str = design_dictionary[KEY_COVER_PLATE]
         self.cover_plate_type = cover_plate_type_str  # Store for CAD generation
 
-        # Cover plate and packing plate logic as per documentation
         available_thicknesses = [float(thk) for thk in PLATE_THICKNESS_SAIL]
         if "double" in cover_plate_type_str.lower():
             self.planes = 2
-            # Double cover plate thickness as per Eq. 3.2
-            Tcp = math.ceil((9.0 / 16.0) * Tmin)
+            # Double cover plate: each plate area ≥ A_main/2 (load shared equally); 5/8 × Tmin
+            # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+            Tcp = math.ceil((5.0 / 8.0) * Tmin)
             self.calculated_cover_plate_thickness = min(
                 [thk for thk in available_thicknesses if thk >= Tcp],
                 default=Tcp
             )
 
-            # Packing plate logic as per Cl. 10.3.3.2
-            if abs(plate1_thk - plate2_thk) > 0.001:
+            # Packing plate as per IS 800:2007 Cl. 10.3.3.3; only when user preference is 'Yes'
+            use_packing = design_dictionary.get(KEY_DP_DETAILING_PACKING_PLATE, 'Yes') == 'Yes'
+            if use_packing and abs(plate1_thk - plate2_thk) > 0.001:
                 self.packing_plate_thickness = abs(plate1_thk - plate2_thk)
             else:
                 self.packing_plate_thickness = 0.0
 
         elif "single" in cover_plate_type_str.lower():
             self.planes = 1
-            # Single cover plate thickness as per Eq. 3.1
-            Tcp = math.ceil((5.0 / 8.0) * Tmin)
+            # Single cover plate: plate area ≥ A_main (full load alone); 9/8 × Tmin
+            # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+            Tcp = math.ceil((9.0 / 8.0) * Tmin)
             self.calculated_cover_plate_thickness = min(
                 [thk for thk in available_thicknesses if thk >= Tcp],
                 default=Tcp
@@ -869,7 +877,8 @@ class ButtJointWelded(MomentConnection):
             self.logger.info(
                 ": Straight weld will be provided as required length is less than plate width")
             self.weld_length_provided = self.plates_width
-            self.weld_length_effective = self.weld_length_provided
+            # Apply 2s deduction for end craters per IS 800:2007 Cl. 10.5.4
+            self.weld_length_effective = self.weld_length_provided - (2 * self.weld_size)
             self.weld_angle = 0
             self.side_weld_length = 0
 
@@ -912,6 +921,21 @@ class ButtJointWelded(MomentConnection):
 
             self.logger.info(
                 ": Skewed weld will be provided with angle {:.2f} degrees".format(self.weld_angle))
+
+        # Overlap length of cover plate on each side
+        # Reference: IS 800:2007 Clause 10.5.1.2 (for lap/overlap length) and Clause 10.5.10 (for return welds) / N. Subramanian, Design of Steel Structures, Sec. 3.10.
+        self.overlap = max(4 * self.calculated_cover_plate_thickness, 40.0)
+        if self.side_weld_length > 0:
+            self.overlap = max(self.overlap, self.side_weld_length + 2 * self.weld_size)
+        
+        # Cover plate length spans symmetrically on both sides of the joint line
+        # Formula: L_cp = 2 * overlap
+        # Reference: Symmetrical welded splice plate design. N. Subramanian, Design of Steel Structures, Sec. 3.10.
+        self.cover_plate_length = 2 * self.overlap
+
+        # Connection length represents the length of the weld group along the force direction (longitudinal direction)
+        # Reference: IS 800:2007 Cl. 10.5.1.2 / N. Subramanian, Design of Steel Structures, Sec. 3.10.
+        self.connection_length = self.side_weld_length
 
         # Update output values for UI display
         self.output_values_dict[KEY_OUT_WELD_LENGTH] = self.weld_length_effective
@@ -1256,15 +1280,16 @@ class ButtJointWelded(MomentConnection):
                 "SubSection", "Cover Plate Design", "|p{4cm}|p{4cm}|p{6.5cm}|p{1.5cm}|"
             ])
 
-            # FIXED ISSUE 1: Correct fraction display
-            if N_f == 2:  # Double cover
-                tcp_numerator = 9
-                tcp_denominator = 16
-                tcp_req = f2((9.0 / 16.0) * plate_thk_min, 0.0)
-            else:  # Single cover
+            # Cover plate thickness: double = 5/8 × Tmin, single = 9/8 × Tmin
+            # Reference: Indian Machine Design practice (IBR); validate against IS 800:2007 Cl. 10.1
+            if N_f == 2:  # Double cover: each plate area ≥ 1.05 × A_main/2
                 tcp_numerator = 5
                 tcp_denominator = 8
                 tcp_req = f2((5.0 / 8.0) * plate_thk_min, 0.0)
+            else:  # Single cover: plate area ≥ 1.05 × A_main
+                tcp_numerator = 9
+                tcp_denominator = 8
+                tcp_req = f2((9.0 / 8.0) * plate_thk_min, 0.0)
 
             tcp_calc = Math(inline=True)
             tcp_calc.append(NoEscape(r'\begin{aligned}'))
@@ -1283,6 +1308,21 @@ class ButtJointWelded(MomentConnection):
             tcp_status = "PASS" if cover_thk >= tcp_req else "FAIL"
             self.report_check.append(
                 ["Cover Plate Thickness", tcp_calc, tcp_prov, tcp_status])
+
+            # Cover Plate Length row
+            # Reference: Symmetrical welded splice plate design. N. Subramanian, Design of Steel Structures, Sec. 3.10.
+            cp_len_req = Math(inline=True)
+            cp_len_req.append(NoEscape(r'\begin{aligned}'))
+            cp_len_req.append(NoEscape(r'L_{cp} &= 2 \cdot l_{lap}\\'))
+            cp_len_req.append(NoEscape(r'&= 2 \times ' + f'{self.overlap:.1f}' + r'\\'))
+            cp_len_req.append(NoEscape(r'&= ' + f'{self.cover_plate_length:.1f}' + r' \text{ mm}\\'))
+            cp_len_req.append(NoEscape(r'&[\text{Ref. N. Subramanian, Sec. 3.10}]'))
+            cp_len_req.append(NoEscape(r'\end{aligned}'))
+            
+            cp_len_prov = Math(inline=True)
+            cp_len_prov.append(NoEscape(r'L_{cp, prov} = ' + f'{self.cover_plate_length:.1f}' + r' \text{ mm}'))
+            
+            self.report_check.append(["Cover Plate Length", cp_len_req, cp_len_prov, 'Pass'])
 
             # Packing plate requirement (if applicable)
             if abs(plate1_thk - plate2_thk) > 0.001 and N_f == 2:
@@ -1503,16 +1543,35 @@ class ButtJointWelded(MomentConnection):
             # Effective length calculation (Section 3.5, Step 1)
             eff_len_calc_detail = Math(inline=True)
             eff_len_calc_detail.append(NoEscape(r'\begin{aligned}'))
+            # IS 800:2007 Cl. 10.5.4: effective length deducts 2 × weld size for end craters
             eff_len_calc_detail.append(
-                NoEscape(r'L_{eff} &= L_{provided\_line} - 2a\\'))
+                NoEscape(r'L_{eff} &= L_{provided\_line} - 2s \quad [\text{IS 800:2007 Cl. 10.5.4}]\\'))
             eff_len_calc_detail.append(NoEscape(
-                r'&= ' + str(L_provided_line) + r' - 2 \times ' + str(effective_throat) + r'\\'))
+                r'&= ' + str(L_provided_line) + r' - 2 \times ' + str(weld_size) + r'\\'))
             eff_len_calc_detail.append(
                 NoEscape(r'&= ' + str(L_eff_provided) + r' \text{ mm}\\'))
             eff_len_calc_detail.append(NoEscape(r'\end{aligned}'))
 
             self.report_check.append(
                 ["Effective Length", "", eff_len_calc_detail, ""])
+
+            # Connection Length row
+            # Reference: IS 800:2007 Cl. 10.5.1.2 / N. Subramanian, Design of Steel Structures, Sec. 3.10.
+            conn_len_req = Math(inline=True)
+            conn_len_req.append(NoEscape(r'\begin{aligned}'))
+            if self.side_weld_length > 0:
+                conn_len_req.append(NoEscape(r'L_{conn} &= L_{side}\\'))
+                conn_len_req.append(NoEscape(r'&= ' + f'{self.side_weld_length:.1f}' + r' \text{ mm}\\'))
+                conn_len_req.append(NoEscape(r'&[\text{Ref. Side weld length}]'))
+            else:
+                conn_len_req.append(NoEscape(r'L_{conn} &= 0 \text{ mm}\\'))
+                conn_len_req.append(NoEscape(r'&[\text{Ref. Transverse weld only}]'))
+            conn_len_req.append(NoEscape(r'\end{aligned}'))
+            
+            conn_len_prov = Math(inline=True)
+            conn_len_prov.append(NoEscape(r'L_{conn, prov} = ' + f'{self.connection_length:.1f}' + r' \text{ mm}'))
+            
+            self.report_check.append(["Connection Length", conn_len_req, conn_len_prov, 'Pass'])
 
             # ==========================================================================
             # SECTION 3.6: LONG JOINT REDUCTION FACTOR
@@ -1587,6 +1646,21 @@ class ButtJointWelded(MomentConnection):
             self.report_check.append([
                 "SubSection", "Base Metal Strength Check", "|p{4cm}|p{4cm}|p{6.5cm}|p{1.5cm}|"
             ])
+
+            # IS 800:2007 Cl. 6.2: gross section area = width × t_min
+            area_calc = Math(inline=True)
+            area_calc.append(NoEscape(r'\begin{aligned}'))
+            area_calc.append(NoEscape(r'A_g &= b \times t_{\min}\\'))
+            area_calc.append(NoEscape(
+                r'&= ' + str(width) + r' \times ' + str(plate_thk_min)
+                + r' = ' + f'{Ag:.1f}' + r' \text{ mm}^2\\'))
+            # IS 800:2007 Cl. 6.3: no hole deduction for welded joints
+            area_calc.append(NoEscape(r'A_n &= A_g\\'))
+            area_calc.append(NoEscape(
+                r'&= ' + f'{Ag:.1f}'
+                + r' \text{ mm}^2 \quad \text{(no bolt holes in welded joint)}'))
+            area_calc.append(NoEscape(r'\end{aligned}'))
+            self.report_check.append(["Gross / Net Area", "", area_calc, ""])
 
             if is_comp:
                 # For compression - only yielding check

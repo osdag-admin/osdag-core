@@ -474,9 +474,9 @@ class LapJointBolted(MomentConnection):
                             material_grade=design_dictionary[KEY_MATERIAL], width=self.width)
         self.bolt = Bolt(grade=design_dictionary[KEY_GRD], diameter=design_dictionary[KEY_D],
                          bolt_type=design_dictionary[KEY_TYP],
-                         bolt_hole_type=design_dictionary[KEY_DP_BOLT_HOLE_TYPE],
-                         edge_type=design_dictionary[KEY_DP_DETAILING_EDGE_TYPE],
-                         mu_f=design_dictionary.get(KEY_DP_BOLT_SLIP_FACTOR, None),
+                         bolt_hole_type=design_dictionary.get(KEY_DP_BOLT_HOLE_TYPE, "Standard"),
+                         edge_type=design_dictionary.get(KEY_DP_DETAILING_EDGE_TYPE, "Sheared or hand flame cut"),
+                         mu_f=design_dictionary.get(KEY_DP_BOLT_SLIP_FACTOR, "0.3"),
                          )
         self.planes = 1
         self.count = 0
@@ -742,43 +742,48 @@ class LapJointBolted(MomentConnection):
 
     def check_capacity_reduction_1(self,design_dictionary):
         # print("Capacity red check 1")
+        self.bij = 1.0
         if self.number_bolts > 2:
-            lg = (self.rows - 1)*self.bolt.min_pitch_round
+            lg = (self.cols - 1)*self.bolt.min_pitch_round
             if  lg > 15 * self.bolt.bolt_diameter_provided:
                 self.bij = 1.075 - (lg / (200 * self.bolt.bolt_diameter_provided))
-        if self.bij >= 0.75 and self.bij <= 1.0:
-            self.cap_red = True
-            # print("1 cap red")
-            self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.bij
-            if self.bolt.bolt_type == 'Bearing Bolt':
-                self.bolt.bolt_capacity = min(self.bolt.bolt_shear_capacity, self.bolt.bolt_bearing_capacity)
-            else:
-                self.slip_res = self.bolt.bolt_shear_capacity
-                self.bolt.bolt_capacity = self.slip_res
-
+                if self.bij > 1.0: self.bij = 1.0
+                if self.bij < 0.75: self.bij = 0.75
 
         self.design_status = True
         self.check_capacity_reduction_2(design_dictionary)
 
     def check_capacity_reduction_2(self,design_dictionary):
         self.cap_red = False
+        self.blg = 1.0
         # print("Capacity red check 2")
-        if self.plate1thk + self.plate2thk > 5 * self.bolt.bolt_diameter_provided:
-            self.blg = 8 / (3 + (self.plate1thk + self.plate2thk / self.bolt.bolt_diameter_provided))
-        if self.blg < self.bij and self.blg != 0:
+        total_thk = float(self.plate1thk) + float(self.plate2thk)
+        if total_thk > 8 * self.bolt.bolt_diameter_provided:
+            self.logger.error(": Grip length exceeds 8 times the nominal diameter of the bolt. [Cl. 10.3.3.2]")
+            self.design_status = False
+            self.design_error = "Grip length too large (Cl. 10.3.3.2)"
+            return
+
+        if total_thk > 5 * self.bolt.bolt_diameter_provided:
+            self.blg = 8 / (3 + (total_thk / self.bolt.bolt_diameter_provided))
+            
+        if self.blg > self.bij:
+            self.blg = self.bij
+
+        beta = min(self.bij, self.blg)
+        
+        if beta < 1.0:
             self.cap_red = True
-            # print("blg",self.blg)
-            # print("2 cap red")
-            self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * self.blg
+            # print("cap red")
             if self.bolt.bolt_type == 'Bearing Bolt':
+                self.bolt.bolt_shear_capacity = self.bolt.bolt_shear_capacity * beta
                 self.bolt.bolt_capacity = min(self.bolt.bolt_shear_capacity, self.bolt.bolt_bearing_capacity)
             else:
-                self.slip_res = self.bolt.bolt_shear_capacity
+                self.slip_res = self.slip_res * beta
                 self.bolt.bolt_capacity = self.slip_res
             
             self.number_r_c_bolts(design_dictionary,1,0)
-        
-        if self.cap_red == False:
+        else:
             self.design_status = True
             # print("Going to formatting")
             # print("After checks 2 numbolts",self.number_bolts)
@@ -840,6 +845,8 @@ class LapJointBolted(MomentConnection):
                 self.final_end_dist = self.bolt.min_end_dist_round
                 self.design_status = True
 
+        self.number_bolts = self.rows * self.cols
+
         if self.bolt.bolt_type == 'Bearing Bolt':
             self.bolt.bolt_shear_capacity = round(self.bolt.bolt_shear_capacity / 1000, 2)
             self.bolt.bolt_bearing_capacity = round(self.bolt.bolt_bearing_capacity / 1000, 2)
@@ -881,18 +888,18 @@ class LapJointBolted(MomentConnection):
 
         if math.isinf(overall_util) or math.isnan(overall_util):
             self.utilization_ratio = 'Inf'
+            self.design_status = False
+            self.design_error = "Utilization ratio is undefined or infinite."
         else:
             self.utilization_ratio = round(overall_util, 2)
+            if overall_util > 1.0:
+                self.design_status = False
+                self.design_error = "Utilization ratio exceeds 1.0"
 
         self.final_gauge = round(self.final_gauge, 0)
         self.final_pitch = round(self.final_pitch, 0)
         self.final_end_dist = round(self.final_end_dist, 0)
         self.final_edge_dist = round(self.final_edge_dist, 0)
-
-        print("FINAL FINAL", self.bolt)
-        print("Final Edge/End/Gauge/Pitch", self.final_edge_dist, self.final_end_dist, self.final_gauge, self.final_pitch)
-        print("Max and min end edge dist ", self.bolt.max_end_dist_round, self.bolt.min_end_dist_round, self.bolt.max_edge_dist_round, self.bolt.min_edge_dist_round)
-        print("Max min gauge pitch dist", self.max_gauge_round, self.bolt.min_gauge_round, self.max_pitch_round, self.bolt.min_pitch_round)
 
         # Set plate dimensions for hover_dict display
         # plate length = connection length (along the bolt pitch direction)
@@ -949,10 +956,9 @@ class LapJointBolted(MomentConnection):
                 return False
 
             self.A_n = plate_thk_min * net_width
-            shear_lag_factor = 0.7  # IS 800:2007 Cl.6.3.3 for lap joints
 
             T_dg = self.A_g * fy / self.gamma_m0
-            T_dn = 0.9 * self.A_n * fu * shear_lag_factor / self.gamma_m1
+            T_dn = 0.9 * self.A_n * fu / self.gamma_m1
             self.T_dg = T_dg
             self.T_dn = T_dn
             self.T_db = min(T_dg, T_dn)
@@ -965,7 +971,7 @@ class LapJointBolted(MomentConnection):
 
             T_db_block = IS800_2007.cl_6_4_1_block_shear_strength(A_vg, A_vn, A_tg, A_tn, fu, fy)
             self.T_db = min(self.T_db, T_db_block)
-            self.logger.info(f": Design strength of plate in tension = {self.T_db / 1000:.2f} kN [Cl.6.2.2, 6.2.3, 6.3.3]")
+            self.logger.info(f": Design strength of plate in tension = {self.T_db / 1000:.2f} kN [Cl.6.2, 6.3.1, 6.4.1]")
 
         if self.T_db <= 0:
             self.logger.error(": Plate design strength is non-positive. Check input dimensions/material.")
@@ -1117,9 +1123,9 @@ class LapJointBolted(MomentConnection):
             base_metal_capacity_kN = f2(g('base_metal_capacity_kN', 0.0), 0.0)
             
             A_g = f2(g('A_g', 0.0), 0.0)
-            T_dg = f2(g('T_dg', 0.0), 0.0)
-            T_dn = f2(g('T_dn', 0.0), 0.0)
-            T_db = f2(g('T_db', 0.0), 0.0)
+            T_dg = f2(g('T_dg', 0.0) / 1000.0, 0.0)
+            T_dn = f2(g('T_dn', 0.0) / 1000.0, 0.0)
+            T_db = f2(g('T_db', 0.0) / 1000.0, 0.0)
             
             overall_ur = round(g('utilization_ratio', 0.0), 3)
 
@@ -1152,17 +1158,18 @@ class LapJointBolted(MomentConnection):
 
             d = float(self.bolt.bolt_diameter_provided)
             bolt_grade = float(self.bolt.bolt_grade_provided)
-            f_ub = int(bolt_grade * 100)
+            f_ub = as_int(getattr(self.bolt, 'bolt_fu', None), int(bolt_grade) * 100)
             
             plate1_thk_raw = float(self.plate1.thickness[0]) if isinstance(self.plate1.thickness, list) else float(self.plate1.thickness)
             plate2_thk_raw = float(self.plate2.thickness[0]) if isinstance(self.plate2.thickness, list) else float(self.plate2.thickness)
             
             bolt_shank_area = f2(math.pi * d**2 / 4, 0.0)
             
-            if hasattr(self.bolt, 'bolt_net_area_provided'):
-                bolt_net_area = f2(self.bolt.bolt_net_area_provided, 0.0)
+            # Get net tensile stress area A_nb from bolt object or use standard approximation.
+            if hasattr(self.bolt, 'bolt_net_area') and self.bolt.bolt_net_area:
+                bolt_net_area = f2(self.bolt.bolt_net_area, 0.0)
             else:
-                bolt_net_area = f2(math.pi * (d - 0.9382 * math.sqrt(d))**2 / 4, 0.0)
+                bolt_net_area = f2(0.78 * math.pi * d**2 / 4, 0.0)
             
             gamma_mb = 1.25
 
@@ -1209,23 +1216,28 @@ class LapJointBolted(MomentConnection):
 
             else:  # Bearing Bolt
                 # ========== SHEAR CAPACITY (Cl. 10.3.3) ==========
-                V_dsb_kN = bolt_shear_kN
-                V_nsb = V_dsb_kN * gamma_mb
-                
                 n_n = 1  # Threads intercepting shear plane
                 n_s = 0  # No threads without shear
-                
+
+                # Nominal & design shear per Cl. 10.3.3, BEFORE long-joint/long-grip reductions.
+                V_nsb_kN = (f_ub / math.sqrt(3)) * (n_n * bolt_net_area + n_s * bolt_shank_area) / 1000.0
+                V_dsb_unreduced_kN = V_nsb_kN / gamma_mb
+
+                # Design shear capacity actually used in the design (reduced by beta_lj / beta_lg).
+                V_dsb_kN = bolt_shear_kN
+
                 shear_req = Math(inline=True)
                 shear_req.append(NoEscape(r'\begin{aligned}\\'))
-                shear_req.append(NoEscape(r'V_{dsb} &= \frac{V_{nsb}}{\gamma_{mb}}\\\\'))
                 shear_req.append(NoEscape(r'V_{nsb} &= \frac{f_{ub}}{\sqrt{3}} \cdot (n_n \cdot A_{nb} + n_s \cdot A_{sb})\\'))
                 shear_req.append(NoEscape(r'&= \frac{' + str(f_ub) + r'}{\sqrt{3}} \times (1 \times ' + f'{bolt_net_area:.2f}' + r')\\'))
-                shear_req.append(NoEscape(r'&= ' + f'{V_nsb:.2f}' + r' \text{ kN}\\\\'))
-                shear_req.append(NoEscape(r'V_{dsb} &= \frac{' + f'{V_nsb:.2f}' + r'}{' + str(gamma_mb) + r'}\\'))
+                shear_req.append(NoEscape(r'&= ' + f'{V_nsb_kN:.2f}' + r' \text{ kN}\\\\'))
+                shear_req.append(NoEscape(r'V_{dsb} &= \frac{V_{nsb}}{\gamma_{mb}} = \frac{' + f'{V_nsb_kN:.2f}' + r'}{' + f'{gamma_mb:.2f}' + r'}\\'))
+                shear_req.append(NoEscape(r'&= ' + f'{V_dsb_unreduced_kN:.2f}' + r' \text{ kN}\\\\'))
+                shear_req.append(NoEscape(r'V_{dsb,\,red} &= \beta_{lj} \cdot \beta_{lg} \cdot V_{dsb}\\'))
                 shear_req.append(NoEscape(r'&= ' + f'{V_dsb_kN:.2f}' + r' \text{ kN}\\'))
-                shear_req.append(NoEscape(r'&[\text{Ref. Cl. 10.3.3}]'))
+                shear_req.append(NoEscape(r'&[\text{Ref. Cl. 10.3.3; reductions below}]'))
                 shear_req.append(NoEscape(r'\end{aligned}'))
-                
+
                 self.report_check.append(["Shear Capacity", "", shear_req, ""])
 
                 # ========== BEARING CAPACITY (Cl. 10.3.4) ==========
@@ -1305,7 +1317,7 @@ class LapJointBolted(MomentConnection):
                 "SubSection", "Reduction Factors", "|p{4cm}|p{5cm}|p{5.5cm}|p{1.5cm}|"
             ])
 
-            l_j = (self.rows - 1) * self.final_pitch if self.rows > 1 else 0
+            l_j = (self.cols - 1) * self.final_pitch if self.cols > 1 else 0
             d = self.bolt.bolt_diameter_provided
             
             lj_req = Math(inline=True)
@@ -1493,7 +1505,7 @@ class LapJointBolted(MomentConnection):
             ])
             
             self.report_check.append([
-                "Bolt Pattern", "2", f"Arrangement: {rows} rows × {cols} columns", ""
+                "Bolt Pattern", f"{n_bolts}", f"Arrangement: {rows} rows × {cols} columns", ""
             ])
 
             #================================
@@ -1518,8 +1530,8 @@ class LapJointBolted(MomentConnection):
                 # 1. Gross Section Yielding
                 yield_req = Math(inline=True)
                 yield_req.append(NoEscape(r'\begin{aligned}\\'))
-                yield_req.append(NoEscape(r'T_{dg} &= \frac{A_g \cdot f_y}{\gamma_{m0}}\\\\'))
-                yield_req.append(NoEscape(r'&= \frac{' + str(A_g) + r' \times ' + str(fy) + r'}{1.10}\\\\'))
+                yield_req.append(NoEscape(r'T_{dg} &= \frac{A_g \cdot f_y}{\gamma_{m0} \times 1000}\\\\'))
+                yield_req.append(NoEscape(r'&= \frac{' + str(A_g) + r' \times ' + str(fy) + r'}{1.10 \times 1000}\\\\'))
                 yield_req.append(NoEscape(r'&= ' + f'{T_dg:.2f}' + r' \text{ kN}\\'))
                 yield_req.append(NoEscape(r'&[\text{Ref. Cl. 6.2}]'))
                 yield_req.append(NoEscape(r'\end{aligned}'))
@@ -1528,9 +1540,9 @@ class LapJointBolted(MomentConnection):
                 # 2. Net Section Rupture
                 rup_req = Math(inline=True)
                 rup_req.append(NoEscape(r'\begin{aligned}'))
-                rup_req.append(NoEscape(r'T_{dn} &= \frac{0.9 A_n f_u}{\gamma_{m1}}\\'))
+                rup_req.append(NoEscape(r'T_{dn} &= \frac{0.9 \cdot A_n \cdot f_u}{\gamma_{m1} \times 1000}\\'))
                 rup_req.append(NoEscape(r'&= ' + f'{T_dn:.2f}' + r' \text{ kN}\\'))
-                rup_req.append(NoEscape(r'&[\text{Ref. Cl. 6.3}]'))
+                rup_req.append(NoEscape(r'&[\text{Ref. Cl. 6.3.1}]'))
                 rup_req.append(NoEscape(r'\end{aligned}'))
                 self.report_check.append(["Net Section Rupture", "", rup_req, ""])
 
